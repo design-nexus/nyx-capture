@@ -193,6 +193,7 @@ impl Editor {
         let redo = widgets::bar_button("edit-redo-symbolic", "Redo (Ctrl+Shift+Z)");
         let copy = widgets::bar_button("edit-copy-symbolic", "Copy annotated image (Ctrl+C)");
         let save = widgets::bar_button("document-save-symbolic", "Save annotated image (Ctrl+S)");
+        let share = widgets::bar_button("send-to-symbolic", "Share the annotated image");
         let pin = widgets::icon_button("view-pin-symbolic", "Pin on the desktop");
         let ocr = widgets::icon_button("edit-find-symbolic", "Read text in the shot");
         let redact = widgets::bar_button("channel-secure-symbolic", "Redact emails, URLs, cards, and keys");
@@ -221,7 +222,7 @@ impl Editor {
         // The app and the shot; the edit actions, then Save and Copy, at the end.
         let header = chrome::app_header(&window, "capture-region-symbolic", "Capture");
         header.end.set_spacing(4);
-        for b in [undo.upcast_ref::<gtk::Widget>(), redo.upcast_ref(), redact.upcast_ref(), more.upcast_ref(), save.upcast_ref(), copy.upcast_ref()] {
+        for b in [undo.upcast_ref::<gtk::Widget>(), redo.upcast_ref(), redact.upcast_ref(), more.upcast_ref(), share.upcast_ref(), save.upcast_ref(), copy.upcast_ref()] {
             header.end.append(b);
         }
 
@@ -284,6 +285,8 @@ impl Editor {
         copy.connect_clicked(move |_| me.copy_flat());
         let me = editor.clone();
         save.connect_clicked(move |_| me.save_flat());
+        let me = editor.clone();
+        share.connect_clicked(move |_| me.share_flat());
         let me = editor.clone();
         pin.connect_clicked(move |_| me.pin());
         let me = editor.clone();
@@ -537,6 +540,30 @@ impl Editor {
             },
             move |result| match result {
                 Ok(path) => me.toast(&format!("Saved {}", path.display())),
+                Err(err) => me.toast(&err.to_string()),
+            },
+        );
+        self.write_sidecar();
+    }
+
+    fn share_flat(&self) {
+        let Some((original, state)) = self.0.session.borrow().as_ref().map(|s| (s.original.clone(), s.history.current().clone())) else { return };
+        let me = self.clone();
+        crate::cmd::background(
+            move || {
+                let img = annot::render(&original, &state);
+                export::png_bytes(&image::DynamicImage::ImageRgba8(img))
+            },
+            move |result| match result {
+                Ok(bytes) => {
+                    let name = format!("Screenshot {}.png", glib::DateTime::now_local().and_then(|d| d.format("%Y-%m-%d %H.%M.%S")).map(|s| s.to_string()).unwrap_or_default());
+                    let me2 = me.clone();
+                    crate::share::png(bytes, name, move |r| {
+                        if let Err(e) = r {
+                            me2.toast(&e);
+                        }
+                    });
+                }
                 Err(err) => me.toast(&err.to_string()),
             },
         );

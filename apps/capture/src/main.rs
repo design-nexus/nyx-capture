@@ -11,6 +11,7 @@ mod paths;
 mod prefs;
 mod settings_dialog;
 mod settings_page;
+mod share;
 mod theme;
 mod widgets;
 mod window;
@@ -52,6 +53,8 @@ const USAGE: &str = "Usage: nyx-capture [OPTIONS]\n\
 
 fn main() -> glib::ExitCode {
     nyx_core::app::init(nyx_core::app::App { slug: "nyx-capture", name: "Capture" });
+    // Windows without an application, like the editor, take their Wayland app ID from this.
+    glib::set_prgname(Some(app_id().as_str()));
     let args: Vec<String> = std::env::args().collect();
     if args.iter().any(|a| a == "--help" || a == "-h") {
         print!("{USAGE}");

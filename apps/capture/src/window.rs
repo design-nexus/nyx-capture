@@ -1191,6 +1191,7 @@ pub fn item_menu(id: &str, parent: &gtk::Widget, x: f64, y: f64) {
         menu.append(Some("Copy"), Some("item.copy"));
     }
     menu.append(Some("Export…"), Some("item.export"));
+    menu.append(Some("Share…"), Some("item.share"));
     if row.kind == CaptureKind::Recording && nyx_capture_core::detect::present("ffmpeg") {
         menu.append(Some("Trim…"), Some("item.trim"));
     }
@@ -1215,6 +1216,17 @@ pub fn item_menu(id: &str, parent: &gtk::Widget, x: f64, y: f64) {
     let id = row.id.clone();
     let name = row.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "capture.png".into());
     act("export", Box::new(move || export_capture(&id, &name)));
+    let (path, recording) = (row.path.clone(), row.kind == CaptureKind::Recording);
+    act(
+        "share",
+        Box::new(move || {
+            crate::share::capture(path.clone(), recording, |r| {
+                if let Err(e) = r {
+                    toast(&e);
+                }
+            })
+        }),
+    );
     let r = row.clone();
     act("trim", Box::new(move || trim_capture(&r)));
     act("delete", Box::new(move || delete_later(doomed.clone())));
