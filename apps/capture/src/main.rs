@@ -38,6 +38,7 @@ const USAGE: &str = "Usage: nyx-capture [OPTIONS]\n\
   --fullscreen        the focused monitor\n\
   --delay SECS        wait before capturing\n\
   --ocr               copy recognized text\n\
+  --ocr-file PATH     print the text in an image file (--json: {text, engine})\n\
   --pin               pin the shot after capture\n\
   --copy              put the image on the clipboard (default)\n\
   --save [PATH]       write a PNG\n\
@@ -66,6 +67,17 @@ fn main() -> glib::ExitCode {
             Ok(()) => glib::ExitCode::SUCCESS,
             Err(err) => {
                 eprintln!("{err}");
+                glib::ExitCode::FAILURE
+            }
+        };
+    }
+
+    // Text from an image another app has (Nyx Clipboard's Extract text), on stdout.
+    if let Some(path) = flag_value(&args, "--ocr-file") {
+        return match ocr_file(path, has_flag(&args, "--json")) {
+            Ok(()) => glib::ExitCode::SUCCESS,
+            Err(err) => {
+                eprintln!("nyx-capture: {err}");
                 glib::ExitCode::FAILURE
             }
         };
@@ -384,6 +396,19 @@ fn remember_cold(shot: &nyx_capture_core::capture::Shot, title: &str) {
         Ok(_) => {}
         Err(err) => eprintln!("nyx-capture: history: {err}"),
     }
+}
+
+/// Recognize the text in an image file with Capture's OCR settings, and print it.
+fn ocr_file(path: &str, json: bool) -> anyhow::Result<()> {
+    let p = prefs::get();
+    let img = image::open(path)?;
+    let r = nyx_capture_core::ocr::recognize(&img, OcrMode::parse(&p.ocr_mode), &p.ocr_langs)?;
+    if json {
+        println!("{}", serde_json::json!({ "text": r.text, "engine": r.engine }));
+    } else {
+        println!("{}", r.text);
+    }
+    Ok(())
 }
 
 fn ocr_into_history(id: &str) -> anyhow::Result<()> {
