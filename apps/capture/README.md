@@ -75,6 +75,7 @@ nyx-capture --monitor [NAME]   One monitor (the focused one without NAME)
 nyx-capture --fullscreen       The focused monitor
 nyx-capture --delay SECS       Wait first
 nyx-capture --ocr              Region, then copy its text
+nyx-capture --ocr-file PATH    Print the text in an image file (--json: {text, engine})
 nyx-capture --pin              Region, then pin it
 nyx-capture --edit             Region, then the editor
 nyx-capture --copy | --save [PATH]
