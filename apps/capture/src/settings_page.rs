@@ -21,13 +21,23 @@ fn capture_group(page: &Page) {
     let group = page.group("Capture");
     let prefs = prefs::get();
     let tools = Tools::probe();
-    group.add(&widgets::segmented_row(
+    let (row, _) = widgets::choice_row(
         "Start with",
         "What the capture bar has chosen when the Print key opens it.",
-        widgets::opts(&[("smart", "Smart"), ("window", "Window"), ("screen", "Screen")]),
+        widgets::opts(&[
+            ("smart", "Smart"),
+            ("window", "Window"),
+            ("screen", "Screen"),
+            ("scroll", "Scroll"),
+            ("record", "Record"),
+            ("text", "Text"),
+            ("qr", "QR code"),
+            ("colour", "Colour"),
+        ]),
         &prefs.capture_start,
         |v| prefs::update(|p| p.capture_start = v),
-    ));
+    );
+    group.add(&row);
     let mut after = vec![("edit", "Edit"), ("pin", "Pin")];
     if tools.wl_copy {
         after.insert(0, ("copy", "Copy"));
@@ -179,7 +189,7 @@ fn privacy_group(page: &Page) {
         |on| prefs::update(|p| p.auto_redact = on),
     );
     group.add(&row);
-    let tutorial = widgets::icon_button("help-browser-symbolic", "Show the walkthrough");
+    let tutorial = widgets::icon_button("help-browser-symbolic", "Show walkthrough");
     tutorial.connect_clicked(|_| {
         prefs::update(|p| p.tutorial_done = false);
         window::show_tutorial();
@@ -218,7 +228,7 @@ fn ocr_group(page: &Page) {
         group.add(&row);
     }
     let present = nyx_capture_core::ocr::models_present();
-    let get = widgets::icon_button("folder-download-symbolic", "Download the RapidOCR models");
+    let get = widgets::icon_button("folder-download-symbolic", "Download RapidOCR models");
     get.set_visible(!present);
     let state = widgets::label(if present { "Installed" } else { "Not downloaded" }, "dim");
     let right = widgets::hbox(8);

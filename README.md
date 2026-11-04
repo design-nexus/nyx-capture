@@ -1,7 +1,7 @@
 # Capture
 
-Screenshots, annotation, OCR and screen recording for Omarchy and Hyprland, with a
-searchable history.
+Screenshots, annotation, text and QR code reading, a colour picker and screen recording
+for Omarchy and Hyprland, with a searchable history.
 
 ## Install
 
@@ -18,10 +18,24 @@ in place of `install.sh`.
 
 - **The Print key** (`nyx-capture --capture`) freezes the screen and opens the capture bar
   at the bottom: **Smart** (drag a region, click a window, or click empty space for the
-  screen), **Window**, **Screen**, **Scroll** and **Record** (keys 1–5). For a shot, three
-  choices apply to this one: edit afterwards (E), copy its text instead (O), wait 3 seconds
-  (D). Size and app show beside the pointer, with a magnifier. Esc, or the key again,
-  cancels. The History window's capture buttons open the same bar on their mode.
+  screen), **Window**, **Screen**, then **Scroll**, **Record**, **Text**, **QR code** and
+  **Colour** as icons (keys 1–8; O, Q and C for the last three). For a shot: edit after
+  capture (E) and delay 3 seconds (D). Size and app show beside the pointer, with a
+  magnifier. Tab cycles the region's shape (free, 1:1, 4:3, 16:9), R brings back the last
+  region drawn, and Ctrl+A takes the whole screen. Esc, or the key again, cancels. The
+  History window's capture buttons open the same bar on their mode.
+- **Text**: drag over text, or click a window or the screen, and its text is copied. Keep
+  line breaks (L) or join wrapped lines into paragraphs; Review (V) shows the text over
+  the picture before copying; the language is a dropdown when more than one is installed.
+  The shot goes into history, searchable, but isn't saved to your folder.
+- **QR code**: codes on screen are outlined; click one, drag over one, or click empty space
+  to look everywhere. What it says is copied, marked sensitive so clipboard history leaves
+  it out, and never kept or shown: the note says only what kind it was ("Link to
+  example.com copied", "Wi-Fi network copied"), with Open for a link. Open links (L) opens
+  them straight away.
+- **Colour**: the pixel under the pointer, magnified on a grid, with its value. Click
+  copies it as HEX, RGB or HSL (F cycles); Shift+click copies and stays for another; the
+  arrow keys move a pixel at a time and Enter copies.
 - **Scroll**: pick the part of a page that scrolls (or click a window), then scroll it as
   usual. A dashed frame marks the area, a strip beside it shows the stitched image growing,
   and Done (or Enter, or the key again) finishes; Esc or Cancel throws it away. Scrolling
@@ -46,9 +60,20 @@ in place of `install.sh`.
 
 ## Editing
 
-- Arrow, line, rectangle, ellipse, freehand, highlighter, text and numbered markers in the
-  theme's colours; blur, pixelate and a solid box for hiding things; crop.
+- Arrow (standard, pointy, curved or double: A again cycles), line, rectangle and ellipse
+  (outlined or filled, rectangles with rounded corners), freehand, highlighter, text and
+  numbered steps, in the theme's colours or your own (Custom colour, or I to take one from
+  the picture); blur, pixelate and a solid box for hiding things; crop.
+- **Spotlight** (S; S again for ellipse, rectangle or rounded) dims everything else;
+  scrolling over a selected one magnifies inside it.
+- **Cut** (K) takes out a band across the picture and closes the gap: drag down for rows,
+  across for columns. Marks move with the picture.
+- **Read text** (O): click for the whole picture's text, drag for an area's.
+- **Backdrop** (Shift+B): the picture on a grey or gradient mat, with padding, rounded
+  corners and a shadow, in everything copied, saved, pinned or shared.
 - Select and move a mark, or Delete it. Ctrl+scroll zooms; Ctrl+0 fits.
+- `nyx-capture FILE` and `nyx-capture --clipboard` open an image in the editor without
+  putting it into history.
 - **Redact** reads the shot's text and covers emails, URLs, phone numbers, card numbers,
   addresses and keys with solid boxes; the shot is then marked sensitive (its text isn't
   indexed and Nyx Assistant isn't given it).
@@ -95,13 +120,17 @@ nyx-capture --active-window    The focused window
 nyx-capture --monitor [NAME]   One monitor (the focused one without NAME)
 nyx-capture --fullscreen       The focused monitor
 nyx-capture --delay SECS       Wait first
-nyx-capture --ocr              Region, then copy its text
+nyx-capture --ocr | --text     Region, then copy its text
+nyx-capture --qr               Region, then copy what its QR code says
+nyx-capture --colour           Pick a pixel: copy its colour and print it
 nyx-capture --pin              Region, then pin it
 nyx-capture --edit             Region, then the editor
 nyx-capture --copy | --save [PATH]
 nyx-capture --scroll           The capture bar on Scroll
 nyx-capture --record [--region] [--webcam]
 nyx-capture --record --stop | --pause
+nyx-capture FILE               Open an image in the editor
+nyx-capture --clipboard        Open the clipboard's image in the editor
 nyx-capture --section ID       Open Recent, Starred, or settings
 nyx-capture --toggle           Close the window if it's open, otherwise open it
 ```
@@ -113,13 +142,17 @@ o.bind("PRINT", "Capture", "nyx-capture --capture")
 o.bind("SUPER + SHIFT + S", "Capture region", "nyx-capture --region")
 o.bind("SUPER + SHIFT + W", "Capture window", "nyx-capture --window")
 o.bind("SUPER + SHIFT + O", "Capture text", "nyx-capture --ocr")
+-- Where Omarchy binds hyprpicker and omarchy-capture-text / -qr:
+o.bind("SUPER + PRINT", "Pick a colour", "nyx-capture --colour")
+o.bind("SUPER + CTRL + PRINT", "Capture text", "nyx-capture --capture text")
+o.bind("SUPER + SHIFT + PRINT", "Scan a QR code", "nyx-capture --capture qr")
 ```
 
 | Key | Action |
 | --- | --- |
 | Ctrl+N | Capture a region |
 | Ctrl+Shift+N | Capture a window |
-| Ctrl+Shift+F | Capture the focused monitor |
+| Ctrl+Shift+F | Capture the screen |
 | Ctrl+Shift+L | Scrolling capture |
 | Ctrl+R | Start or stop a recording |
 | Ctrl+Shift+R | Record a region |
@@ -134,17 +167,20 @@ o.bind("SUPER + SHIFT + O", "Capture text", "nyx-capture --ocr")
 | F1 | Keyboard shortcuts |
 | Ctrl+Q | Close |
 
-In the editor: V select, A arrow, L line, R rectangle, E ellipse, P freehand,
-H highlighter, T text, N marker, B blur, X pixelate, D solid box, C crop; Delete removes the
-selected mark; Ctrl+Z / Ctrl+Shift+Z undo and redo; Ctrl+C copies; Ctrl+S saves; F1 lists
-them.
+In the editor: V select, A arrow (again for its style), L line, R rectangle, E ellipse,
+P freehand, H highlighter, T text, N numbered step, S spotlight (again for its shape),
+B blur, X pixelate, D solid box, K cut, C crop, O read text, I pick a colour from the
+picture, Shift+B backdrop; Delete removes the selected mark; Ctrl+Z / Ctrl+Shift+Z undo and
+redo; Ctrl+C copies; Ctrl+S saves; F1 lists them.
 
 ## Glimpse and Nyx Assistant
 
 `nyx-capture-glimpse` searches history text (and copies it) and runs `capture region`,
-`capture window` and `capture screen`. Nyx Assistant can take a capture, search history,
-read a capture's text and control recording over the session bus (sending it a screenshot
-is off until Settings → Privacy allows it).
+`capture window`, `capture screen`, `capture text`, `scan qr code`, `pick colour` and
+`edit clipboard image`. Nyx Assistant can take a capture, copy the text in an area, pick a
+colour, search history, read a capture's text and control recording over the session bus
+(sending it a screenshot is off until Settings → Privacy allows it). QR codes are kept off
+the bus.
 
 ## Files
 

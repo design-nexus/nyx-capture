@@ -10,6 +10,8 @@ pub fn tools() -> Value {
         {"name": "capture.region", "description": "Drag a screen region and copy the screenshot.", "inputSchema": {"type": "object", "properties": {}}},
         {"name": "capture.window", "description": "Pick a window and copy the screenshot.", "inputSchema": {"type": "object", "properties": {}}},
         {"name": "capture.fullscreen", "description": "Capture the focused monitor and copy the screenshot.", "inputSchema": {"type": "object", "properties": {}}},
+        {"name": "capture.text", "description": "Drag a screen region and copy the text in it.", "inputSchema": {"type": "object", "properties": {}}},
+        {"name": "capture.colour", "description": "Pick a pixel on screen and copy its colour.", "inputSchema": {"type": "object", "properties": {}}},
         {"name": "capture.search", "description": "Search screenshot history by OCR text.", "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}},
         {"name": "capture.open", "description": "Open a capture in the annotation editor by id.", "inputSchema": {"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]}},
         {"name": "capture.ocr_text", "description": "Return stored OCR text for a capture id.", "inputSchema": {"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]}},
@@ -26,6 +28,14 @@ pub fn handle(name: &str, args: Value, reply: Reply) {
         "capture.region" => start(CaptureMode::SelectRegion),
         "capture.window" => start(CaptureMode::SelectWindow),
         "capture.fullscreen" => start(CaptureMode::FullDesktop),
+        "capture.text" => {
+            window::capture_with(CaptureMode::SelectRegion, nyx_capture_core::action::After::Ocr, 0);
+            Ok(json!({"started": true}))
+        }
+        "capture.colour" => {
+            window::open_bar("colour");
+            Ok(json!({"started": true}))
+        }
         "capture.search" => search(&args),
         "capture.open" => open(&args),
         "capture.ocr_text" => ocr_text(&args),
@@ -100,5 +110,8 @@ mod tests {
         assert!(names.contains(&"capture.record_stop"));
         assert!(names.contains(&"capture.record_pause"));
         assert!(names.contains(&"capture.send_screenshot"));
+        assert!(names.contains(&"capture.text"));
+        assert!(names.contains(&"capture.colour"));
+        assert!(!names.iter().any(|n| n.contains("qr")));
     }
 }

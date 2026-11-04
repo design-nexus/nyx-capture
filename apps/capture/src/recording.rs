@@ -134,15 +134,15 @@ pub fn show_bar(area: Option<Rect>) {
     dot.add_css_class("rec-dot");
     dot.set_valign(gtk::Align::Center);
 
-    let sound = state_button("capture-speaker-symbolic", desktop, if desktop { "System sound is being recorded" } else { "System sound is off for this recording" });
+    let sound = state_button("capture-speaker-symbolic", desktop, if desktop { "Recording system audio" } else { "System audio off" });
     sound.set_sensitive(false);
-    let mic_btn = state_button("capture-mic-symbolic", mic, if mic { "Mute the microphone" } else { "The microphone is off for this recording" });
+    let mic_btn = state_button("capture-mic-symbolic", mic, if mic { "Mute microphone" } else { "Microphone off" });
     mic_btn.set_sensitive(mic);
     mic_btn.connect_toggled(|b| set_mic(b.is_active()));
 
-    let pause = session.as_ref().filter(|_| record::can_pause()).map(|_| icon("capture-pause-symbolic", "Pause (Ctrl+Alt+P)"));
-    let discard = icon("capture-trash-symbolic", "Throw away");
-    let stop_btn = icon("capture-stop-symbolic", "Stop (Print)");
+    let pause = session.as_ref().filter(|_| record::can_pause()).map(|_| icon("capture-pause-symbolic", "Pause recording (Ctrl+Alt+P)"));
+    let discard = icon("capture-trash-symbolic", "Discard recording");
+    let stop_btn = icon("capture-stop-symbolic", "Stop recording (Print)");
     stop_btn.add_css_class("rec-stop");
 
     let full = gtk::Box::new(gtk::Orientation::Horizontal, 6);
@@ -296,7 +296,7 @@ pub fn show_bar(area: Option<Rect>) {
         }
         if let Some(p) = &bar.pause {
             p.set_icon_name(if session.paused { "capture-play-symbolic" } else { "capture-pause-symbolic" });
-            p.set_tooltip_text(Some(if session.paused { "Resume (Ctrl+Alt+P)" } else { "Pause (Ctrl+Alt+P)" }));
+            p.set_tooltip_text(Some(if session.paused { "Resume recording (Ctrl+Alt+P)" } else { "Pause recording (Ctrl+Alt+P)" }));
         }
         glib::ControlFlow::Continue
     });

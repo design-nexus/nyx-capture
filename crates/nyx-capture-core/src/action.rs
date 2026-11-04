@@ -15,6 +15,8 @@ pub enum After {
     Copy,
     Save,
     Ocr,
+    /// Decode a QR code and copy what it says, marked sensitive.
+    Qr,
     Edit,
     Pin,
     /// Copy and save at once.
@@ -38,6 +40,10 @@ pub enum Outcome {
     /// Copied and saved to this path.
     Quick(PathBuf),
     Text(String),
+    /// A QR code's text, copied. Name it by [`crate::qr::classify`]; never show it.
+    Qr(String),
+    /// A colour value, copied.
+    Colour(String),
     Cancelled,
 }
 
@@ -91,6 +97,11 @@ pub fn finish(shot: &crate::capture::Shot, action: &Action) -> Result<Outcome> {
             let result = recognize(&shot.image, action.ocr_mode, &action.ocr_langs)?;
             clipboard::copy_text(&result.text)?;
             Ok(Outcome::Text(result.text))
+        }
+        After::Qr => {
+            let Some(text) = crate::qr::decode(&shot.image) else { bail!("No QR code found") };
+            clipboard::copy_secret(&text)?;
+            Ok(Outcome::Qr(text))
         }
         After::Edit | After::Pin => Ok(Outcome::Cancelled),
     }
@@ -196,7 +207,7 @@ pub fn require_tools_for(mode: &CaptureMode, after: After, ocr_mode: OcrMode) ->
     if matches!(mode, CaptureMode::ActiveWindow) && !tools.hyprctl {
         bail!("Window capture needs hyprctl");
     }
-    if matches!(after, After::Copy | After::Ocr | After::Quick) && !tools.wl_copy {
+    if matches!(after, After::Copy | After::Ocr | After::Qr | After::Quick) && !tools.wl_copy {
         bail!("Copy needs wl-copy");
     }
     if matches!(after, After::Ocr) {

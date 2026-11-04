@@ -66,7 +66,7 @@ pub fn open_rgba(img: RgbaImage) {
         win_opacity.set_opacity(s.value());
     });
 
-    let close = widgets::icon_button("window-close-symbolic", "Dismiss");
+    let close = widgets::icon_button("window-close-symbolic", "Close");
     let win_close = window.clone();
     close.connect_clicked(move |_| win_close.close());
 

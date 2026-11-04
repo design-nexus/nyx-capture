@@ -19,7 +19,7 @@ pub fn write_png(image: &DynamicImage, path: &Path) -> Result<()> {
 pub fn flatten_png(path: &Path) -> Result<DynamicImage> {
     let src = image::open(path).with_context(|| format!("open {}", path.display()))?.to_rgba8();
     let state = crate::annot::EditState::load(&crate::annot::sidecar_path(path)).unwrap_or_default();
-    Ok(DynamicImage::ImageRgba8(crate::annot::render(&src, &state)))
+    Ok(DynamicImage::ImageRgba8(crate::annot::flatten(&src, &state)))
 }
 
 pub fn write_flat(src: &Path, dest: &Path) -> Result<()> {
@@ -70,6 +70,8 @@ mod tests {
             rect: crate::annot::NormRect::new(0.0, 0.0, 1.0, 1.0),
             colour: Colour::rgb(1.0, 0.0, 0.0),
             size: 0.2,
+            fill: false,
+            radius: 0.0,
         });
         st.save(&crate::annot::sidecar_path(&src)).unwrap();
         write_flat(&src, &dest).unwrap();

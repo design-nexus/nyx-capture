@@ -14,7 +14,8 @@ pub struct Prefs {
     pub glow: bool,
     pub last_section: String,
     pub after_capture: String,
-    /// What the capture bar starts on: `smart`, `window` or `screen`.
+    /// What the capture bar starts on: `smart`, `window`, `screen`, `scroll`, `record`,
+    /// `text`, `qr` or `colour`.
     pub capture_start: String,
     /// Show the shot card after a copy-and-save capture.
     pub shot_card: bool,
@@ -28,6 +29,14 @@ pub struct Prefs {
     pub ocr_mode: String,
     pub ocr_langs: String,
     pub ocr_on_capture: bool,
+    /// Text mode: keep the recognized line breaks, or join wrapped lines into paragraphs.
+    pub ocr_keep_lines: bool,
+    /// Text mode: show the recognized text before it is copied.
+    pub ocr_review: bool,
+    /// QR mode: open a web link as well as copying it.
+    pub qr_open_links: bool,
+    /// Colour mode: `hex`, `rgb` or `hsl`.
+    pub colour_format: String,
     pub backend: String,
     pub selector: String,
     pub recorder: String,
@@ -64,6 +73,10 @@ impl Default for Prefs {
             ocr_mode: "automatic".into(),
             ocr_langs: "eng".into(),
             ocr_on_capture: true,
+            ocr_keep_lines: true,
+            ocr_review: false,
+            qr_open_links: false,
+            colour_format: "hex".into(),
             backend: "auto".into(),
             selector: "auto".into(),
             recorder: "auto".into(),

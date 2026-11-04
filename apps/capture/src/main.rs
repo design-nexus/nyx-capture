@@ -6,6 +6,7 @@ mod control;
 mod editor;
 mod grid;
 mod naming;
+mod notice;
 mod ocr_view;
 mod overlay;
 mod pin;
@@ -35,9 +36,9 @@ pub fn app_id() -> String {
 
 const USAGE: &str = "Usage: nyx-capture [OPTIONS]\n\
 \n\
-  --capture [MODE]    the capture bar (smart, window, screen, scroll or record; else\n\
-                      Settings → Capture's Start with). Run again to close it, finish\n\
-                      a scroll, or stop a recording\n\
+  --capture [MODE]    the capture bar (smart, window, screen, scroll, record, text,\n\
+                      qr or colour; else Settings → Capture's Start with). Run again\n\
+                      to close it, finish a scroll, or stop a recording\n\
   --cancel            cancel the capture bar or a scroll capture in progress\n\
   --region            drag a region\n\
   --window            pick a window\n\
@@ -45,7 +46,9 @@ const USAGE: &str = "Usage: nyx-capture [OPTIONS]\n\
   --monitor [NAME]    one monitor (focused if NAME is omitted)\n\
   --fullscreen        the focused monitor\n\
   --delay SECS        wait before capturing\n\
-  --ocr               copy recognized text\n\
+  --ocr, --text       copy the text in a region\n\
+  --qr                copy what a QR code in a region says (marked sensitive)\n\
+  --colour, --color   pick a pixel: copy its colour and print it\n\
   --ocr-file PATH     print the text in an image file (--json: {text, engine})\n\
   --pin               pin the shot after capture\n\
   --copy              put the image on the clipboard (default)\n\
@@ -57,6 +60,8 @@ const USAGE: &str = "Usage: nyx-capture [OPTIONS]\n\
   --record --stop     stop the current recording\n\
   --record --pause    pause or resume (gpu-screen-recorder)\n\
   --record --webcam   picture-in-picture camera (mpv WebcamOverlay)\n\
+  FILE, --file FILE   open an image in the editor (not added to history)\n\
+  --clipboard         open the image on the clipboard in the editor\n\
   --section ID        open Recent, Starred, or settings\n\
   --toggle            close the window if it's open, otherwise open it\n";
 
@@ -113,13 +118,25 @@ fn main() -> glib::ExitCode {
         }
     }
 
+    if is_colour(&args) && !primary_running() {
+        return match pick_colour_cold() {
+            Ok(()) => glib::ExitCode::SUCCESS,
+            Err(err) => {
+                eprintln!("nyx-capture: {err}");
+                glib::ExitCode::FAILURE
+            }
+        };
+    }
+
     if let Some(action) = cli_action(&args)
         && !matches!(action.after, action::After::Edit | action::After::Pin)
         && !primary_running()
     {
         let title = nyx_capture_core::select::capture_title();
+        // A QR code can hold a secret: its shot isn't kept.
+        let keep = action.after != action::After::Qr;
         match run_cli(&action).map(|(outcome, shot)| {
-            if let Some(shot) = shot {
+            if let Some(shot) = shot.filter(|_| keep) {
                 remember_cold(&shot, &title);
             }
             outcome
@@ -132,6 +149,8 @@ fn main() -> glib::ExitCode {
                     eprintln!("{text}");
                 }
             }
+            Ok(Outcome::Qr(text)) => eprintln!("{}", nyx_capture_core::qr::classify(&text).copied()),
+            Ok(Outcome::Colour(value)) => println!("{value}"),
             Err(err) => {
                 eprintln!("{err}");
                 return glib::ExitCode::FAILURE;
@@ -179,6 +198,24 @@ fn main() -> glib::ExitCode {
         }
         if has("--scroll") {
             window::start_scroll();
+            return glib::ExitCode::SUCCESS;
+        }
+        if is_colour(&argv) {
+            window::capture_from_key(app, Some("colour"));
+            return glib::ExitCode::SUCCESS;
+        }
+        if has("--clipboard") {
+            window::edit_clipboard();
+            return glib::ExitCode::SUCCESS;
+        }
+        if let Some(target) = image_arg(&argv) {
+            // A relative path is the caller's, not this process's.
+            let path = match target.strip_prefix("file://") {
+                Some(_) => glib::filename_from_uri(&target).map(|(p, _)| p).unwrap_or_else(|_| target.clone().into()),
+                None => std::path::PathBuf::from(&target),
+            };
+            let path = if path.is_relative() { cl.cwd().map(|d| d.join(&path)).unwrap_or(path) } else { path };
+            window::edit_file(path);
             return glib::ExitCode::SUCCESS;
         }
         if has("--record") {
@@ -244,6 +281,30 @@ fn flag_value<'a>(args: &'a [String], flag: &str) -> Option<&'a str> {
     args.iter().position(|a| a == flag).and_then(|i| args.get(i + 1)).map(|s| s.as_str()).filter(|s| !s.starts_with('-'))
 }
 
+/// The image to edit: `--file PATH`, or a lone path (or file:// URL) as the only argument.
+fn image_arg(args: &[String]) -> Option<String> {
+    if let Some(v) = flag_value(args, "--file") {
+        return Some(v.to_string());
+    }
+    match args {
+        [_, only] if !only.starts_with('-') => Some(only.clone()),
+        _ => None,
+    }
+}
+
+fn is_colour(args: &[String]) -> bool {
+    has_flag(args, "--colour") || has_flag(args, "--color")
+}
+
+/// `--colour` with no Capture window: pick a pixel, copy its value, print it.
+fn pick_colour_cold() -> anyhow::Result<()> {
+    let Some(rgb) = overlay::run_colour_cli()? else { return Ok(()) };
+    let value = nyx_capture_core::colour::format(rgb, nyx_capture_core::colour::Format::parse(&prefs::get().colour_format));
+    nyx_capture_core::clipboard::copy_text(&value)?;
+    println!("{value}");
+    Ok(())
+}
+
 fn cli_action(args: &[String]) -> Option<Action> {
     let mode = if has_flag(args, "--region") {
         CaptureMode::SelectRegion
@@ -258,18 +319,19 @@ fn cli_action(args: &[String]) -> Option<Action> {
             Some(name) => CaptureMode::Monitor(name.to_string()),
             None => CaptureMode::FullDesktop,
         }
-    } else if has_flag(args, "--ocr") || has_flag(args, "--pin") || has_flag(args, "--edit") {
+    } else if ["--ocr", "--text", "--qr", "--pin", "--edit"].iter().any(|f| has_flag(args, f)) {
         CaptureMode::SelectRegion
     } else {
         return None;
     };
     let delay = flag_value(args, "--delay").and_then(|s| s.parse().ok()).unwrap_or(0);
     let save = has_flag(args, "--save");
-    let ocr = has_flag(args, "--ocr");
+    let ocr = has_flag(args, "--ocr") || has_flag(args, "--text");
+    let qr = has_flag(args, "--qr");
     let pin = has_flag(args, "--pin");
     let edit = has_flag(args, "--edit");
-    let copy = has_flag(args, "--copy") || (!save && !ocr && !pin && !edit);
-    let after = action::parse_after(copy, save, ocr, pin, edit).ok()?;
+    let copy = has_flag(args, "--copy") || (!save && !ocr && !qr && !pin && !edit);
+    let after = if qr { action::After::Qr } else { action::parse_after(copy, save, ocr, pin, edit).ok()? };
     let save_path = if save {
         Some(flag_value(args, "--save").map(std::path::PathBuf::from).unwrap_or_else(|| naming::next_path("")))
     } else {
@@ -516,6 +578,20 @@ mod tests {
         let a = cli_action(&["nyx-capture".into(), "--fullscreen".into(), "--delay".into(), "3".into(), "--copy".into()]).expect("action");
         assert_eq!(a.delay, 3);
         assert!(matches!(a.after, After::Copy));
+    }
+
+    #[test]
+    fn a_lone_path_or_file_flag_is_an_image_to_edit() {
+        let a = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(image_arg(&a(&["nyx-capture", "shot.png"])).as_deref(), Some("shot.png"));
+        assert_eq!(image_arg(&a(&["nyx-capture", "--file", "/tmp/a.png"])).as_deref(), Some("/tmp/a.png"));
+        assert_eq!(image_arg(&a(&["nyx-capture", "--region"])), None);
+        assert_eq!(image_arg(&a(&["nyx-capture"])), None);
+        assert!(cli_action(&a(&["nyx-capture", "shot.png"])).is_none());
+        let qr = cli_action(&a(&["nyx-capture", "--qr"])).expect("qr");
+        assert!(matches!(qr.after, After::Qr));
+        let text = cli_action(&a(&["nyx-capture", "--text"])).expect("text");
+        assert!(matches!(text.after, After::Ocr));
     }
 
     #[test]

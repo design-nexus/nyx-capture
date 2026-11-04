@@ -1,7 +1,7 @@
 //! Flatten an `EditState` onto pixels: blur/pixelate, then cairo marks, then the crop
 //! (marks are in the whole picture's terms; see `STATE_VERSION`).
 
-use super::{Colour, EditState, Mark, NormRect};
+use super::{ArrowStyle, Axis, Colour, Cut, EditState, Mark, NormRect, SpotShape};
 use cairo::{self, Context, Format, ImageSurface};
 use image::imageops::{self, FilterType};
 use image::RgbaImage;
@@ -25,7 +25,13 @@ pub fn render(src: &RgbaImage, st: &EditState) -> RgbaImage {
             _ => {}
         }
     }
+    spotlights(&mut img, &st.marks);
     draw_on_image(&mut img, &st.marks);
+    if !crop_first {
+        for c in &st.cuts {
+            img = cut(&img, *c);
+        }
+    }
     match st.crop {
         Some(c) if !crop_first => crop(&img, c),
         _ => img,
@@ -43,6 +49,25 @@ fn crop(img: &RgbaImage, c: NormRect) -> RgbaImage {
     let cw = ((c.w * w as f64).round() as u32).clamp(1, w - x);
     let ch = ((c.h * h as f64).round() as u32).clamp(1, h - y);
     imageops::crop_imm(img, x, y, cw, ch).to_image()
+}
+
+/// The picture without the cut's band, the two sides closed up.
+fn cut(img: &RgbaImage, c: Cut) -> RgbaImage {
+    let (w, h) = img.dimensions();
+    let len = match c.axis {
+        Axis::Rows => h,
+        Axis::Cols => w,
+    };
+    let a = ((c.from * len as f64).round() as u32).min(len);
+    let gone = (((c.to - c.from).clamp(0.0, 0.95) * len as f64).round() as u32).min(len - a).min(len.saturating_sub(1));
+    if gone == 0 {
+        return img.clone();
+    }
+    let keep = |v: u32| if v < a { v } else { v + gone };
+    match c.axis {
+        Axis::Rows => RgbaImage::from_fn(w, h - gone, |x, y| *img.get_pixel(x, keep(y))),
+        Axis::Cols => RgbaImage::from_fn(w - gone, h, |x, y| *img.get_pixel(keep(x), y)),
+    }
 }
 
 fn pixelate(img: &mut RgbaImage, rect: NormRect, size: f64) {
@@ -144,43 +169,34 @@ fn draw_one(cr: &Context, w: f64, h: f64, unit: f64, mark: &Mark) {
             cr.line_to(to.0 * w, to.1 * h);
             let _ = cr.stroke();
         }
-        Mark::Arrow { from, to, colour, size } => {
-            let width = size * unit;
-            let (fx, fy, tx, ty) = (from.0 * w, from.1 * h, to.0 * w, to.1 * h);
-            let angle = (ty - fy).atan2(tx - fx);
-            let head = width * 4.0 + unit * 0.01;
-            let (bx, by) = (tx - head * 0.8 * angle.cos(), ty - head * 0.8 * angle.sin());
+        Mark::Arrow { from, to, colour, size, style } => {
             set_colour(cr, *colour, 1.0);
-            cr.set_line_width(width);
-            cr.move_to(fx, fy);
-            cr.line_to(bx, by);
-            let _ = cr.stroke();
-            let wing = 25f64.to_radians();
-            cr.move_to(tx, ty);
-            cr.line_to(tx - head * (angle - wing).cos(), ty - head * (angle - wing).sin());
-            cr.line_to(tx - head * (angle + wing).cos(), ty - head * (angle + wing).sin());
-            cr.close_path();
-            let _ = cr.fill();
+            draw_arrow(cr, (from.0 * w, from.1 * h), (to.0 * w, to.1 * h), size * unit, unit, *style);
         }
-        Mark::Rect { rect, colour, size } => {
+        Mark::Rect { rect, colour, size, fill, radius } => {
             let r = rect.scaled(w, h);
             set_colour(cr, *colour, 1.0);
-            cr.set_line_width(size * unit);
-            cr.rectangle(r.x, r.y, r.w, r.h);
-            let _ = cr.stroke();
+            rounded_rect(cr, r.x, r.y, r.w, r.h, radius * unit);
+            if *fill {
+                let _ = cr.fill();
+            } else {
+                cr.set_line_width(size * unit);
+                let _ = cr.stroke();
+            }
         }
-        Mark::Ellipse { rect, colour, size } => {
+        Mark::Ellipse { rect, colour, size, fill } => {
             let r = rect.scaled(w, h);
             if r.w < 0.5 || r.h < 0.5 {
                 return;
             }
             set_colour(cr, *colour, 1.0);
-            cr.translate(r.x + r.w / 2.0, r.y + r.h / 2.0);
-            cr.scale(r.w / 2.0, r.h / 2.0);
-            cr.arc(0.0, 0.0, 1.0, 0.0, 2.0 * PI);
-            cr.identity_matrix();
-            cr.set_line_width(size * unit);
-            let _ = cr.stroke();
+            ellipse_path(cr, r.x, r.y, r.w, r.h);
+            if *fill {
+                let _ = cr.fill();
+            } else {
+                cr.set_line_width(size * unit);
+                let _ = cr.stroke();
+            }
         }
         Mark::Text { at, text, colour, size } => {
             if text.is_empty() {
@@ -206,8 +222,169 @@ fn draw_one(cr: &Context, w: f64, h: f64, unit: f64, mark: &Mark) {
             cr.rectangle(r.x, r.y, r.w, r.h);
             let _ = cr.fill();
         }
-        Mark::Pixelate { .. } | Mark::Blur { .. } => {}
+        // Drawn on the pixels before the marks (see `spotlights`).
+        Mark::Pixelate { .. } | Mark::Blur { .. } | Mark::Spotlight { .. } => {}
     }
+}
+
+/// An arrow from `a` to `b` with a shaft `width` wide, in the current colour.
+fn draw_arrow(cr: &Context, a: (f64, f64), b: (f64, f64), width: f64, unit: f64, style: ArrowStyle) {
+    let len = (b.0 - a.0).hypot(b.1 - a.1);
+    if len < 0.5 {
+        return;
+    }
+    let head = width * 4.0 + unit * 0.01;
+    let back = (head * 0.8).min(len * 0.6);
+    let wing = 25f64.to_radians();
+    let tip = |cr: &Context, at: (f64, f64), angle: f64| {
+        cr.move_to(at.0, at.1);
+        cr.line_to(at.0 - head * (angle - wing).cos(), at.1 - head * (angle - wing).sin());
+        cr.line_to(at.0 - head * (angle + wing).cos(), at.1 - head * (angle + wing).sin());
+        cr.close_path();
+        let _ = cr.fill();
+    };
+    let angle = (b.1 - a.1).atan2(b.0 - a.0);
+    let (ux, uy) = (angle.cos(), angle.sin());
+    let base = (b.0 - back * ux, b.1 - back * uy);
+    cr.set_line_width(width);
+    match style {
+        ArrowStyle::Standard => {
+            cr.move_to(a.0, a.1);
+            cr.line_to(base.0, base.1);
+            let _ = cr.stroke();
+            tip(cr, b, angle);
+        }
+        ArrowStyle::Double => {
+            let start = (a.0 + back * ux, a.1 + back * uy);
+            cr.move_to(start.0, start.1);
+            cr.line_to(base.0, base.1);
+            let _ = cr.stroke();
+            tip(cr, b, angle);
+            tip(cr, a, angle + PI);
+        }
+        ArrowStyle::Pointy => {
+            // A shaft that widens from a point at the tail to the head.
+            let (nx, ny) = (-uy, ux);
+            let half = width * 0.75;
+            cr.move_to(a.0, a.1);
+            cr.line_to(base.0 + nx * half, base.1 + ny * half);
+            cr.line_to(base.0 - nx * half, base.1 - ny * half);
+            cr.close_path();
+            let _ = cr.fill();
+            tip(cr, b, angle);
+        }
+        ArrowStyle::Curved => {
+            // A quadratic bent a quarter of its length to the left, cut where the head
+            // begins so the shaft doesn't show past it.
+            let (nx, ny) = (uy, -ux);
+            let c = ((a.0 + b.0) / 2.0 + nx * len * 0.25, (a.1 + b.1) / 2.0 + ny * len * 0.25);
+            let t = (1.0 - back / (len * 1.08)).clamp(0.3, 1.0);
+            let lerp = |p: (f64, f64), q: (f64, f64), t: f64| (p.0 + (q.0 - p.0) * t, p.1 + (q.1 - p.1) * t);
+            let q1 = lerp(a, c, t);
+            let end = lerp(q1, lerp(c, b, t), t);
+            let c1 = lerp(a, q1, 2.0 / 3.0);
+            let c2 = lerp(end, q1, 2.0 / 3.0);
+            cr.set_line_cap(cairo::LineCap::Butt);
+            cr.move_to(a.0, a.1);
+            cr.curve_to(c1.0, c1.1, c2.0, c2.1, end.0, end.1);
+            let _ = cr.stroke();
+            tip(cr, b, (b.1 - c.1).atan2(b.0 - c.0));
+        }
+    }
+}
+
+fn rounded_rect(cr: &Context, x: f64, y: f64, w: f64, h: f64, r: f64) {
+    let r = r.max(0.0).min(w / 2.0).min(h / 2.0);
+    if r < 0.5 {
+        cr.rectangle(x, y, w, h);
+        return;
+    }
+    cr.new_sub_path();
+    cr.arc(x + w - r, y + r, r, -PI / 2.0, 0.0);
+    cr.arc(x + w - r, y + h - r, r, 0.0, PI / 2.0);
+    cr.arc(x + r, y + h - r, r, PI / 2.0, PI);
+    cr.arc(x + r, y + r, r, PI, 3.0 * PI / 2.0);
+    cr.close_path();
+}
+
+fn ellipse_path(cr: &Context, x: f64, y: f64, w: f64, h: f64) {
+    cr.save().ok();
+    cr.translate(x + w / 2.0, y + h / 2.0);
+    cr.scale((w / 2.0).max(0.01), (h / 2.0).max(0.01));
+    cr.new_sub_path();
+    cr.arc(0.0, 0.0, 1.0, 0.0, 2.0 * PI);
+    cr.restore().ok();
+}
+
+/// A spotlight's outline (pixels), as a path.
+fn spot_path(cr: &Context, r: NormRect, shape: SpotShape, unit: f64) {
+    match shape {
+        SpotShape::Ellipse => ellipse_path(cr, r.x, r.y, r.w, r.h),
+        SpotShape::Rect => cr.rectangle(r.x, r.y, r.w, r.h),
+        SpotShape::Rounded => rounded_rect(cr, r.x, r.y, r.w, r.h, (unit * 0.03).min(r.w.min(r.h) / 3.0)),
+    }
+}
+
+/// How dark a spotlight leaves the rest of the picture.
+const SPOT_DIM: f64 = 0.5;
+
+/// The editor's preview of a spotlight being drawn: the dimming only.
+pub fn draw_spotlight_preview(cr: &Context, w: f64, h: f64, rect: NormRect, shape: SpotShape) {
+    cr.save().ok();
+    cr.set_fill_rule(cairo::FillRule::EvenOdd);
+    cr.rectangle(0.0, 0.0, w, h);
+    spot_path(cr, rect.scaled(w, h), shape, w.min(h));
+    cr.set_source_rgba(0.0, 0.0, 0.0, SPOT_DIM);
+    let _ = cr.fill();
+    cr.restore().ok();
+}
+
+/// Dim everything outside the spotlights, and magnify inside those with a zoom.
+fn spotlights(img: &mut RgbaImage, marks: &[Mark]) {
+    let spots: Vec<(NormRect, SpotShape, f64)> = marks
+        .iter()
+        .filter_map(|m| match m {
+            Mark::Spotlight { rect, shape, zoom } => Some((*rect, *shape, *zoom)),
+            _ => None,
+        })
+        .collect();
+    if spots.is_empty() {
+        return;
+    }
+    let (w, h) = (img.width() as f64, img.height() as f64);
+    let unit = w.min(h);
+    let (Some(source), Some(mut surface)) = (surface_from_image(img), surface_from_image(img)) else { return };
+    {
+        let Ok(cr) = Context::new(&surface) else { return };
+        cr.set_fill_rule(cairo::FillRule::EvenOdd);
+        cr.rectangle(0.0, 0.0, w, h);
+        for (rect, shape, _) in &spots {
+            spot_path(&cr, rect.scaled(w, h), *shape, unit);
+        }
+        cr.set_source_rgba(0.0, 0.0, 0.0, SPOT_DIM);
+        let _ = cr.fill();
+        cr.set_fill_rule(cairo::FillRule::Winding);
+        for (rect, shape, zoom) in spots.iter().filter(|s| s.2 > 1.01) {
+            let r = rect.scaled(w, h);
+            let (cx, cy) = (r.x + r.w / 2.0, r.y + r.h / 2.0);
+            cr.save().ok();
+            spot_path(&cr, r, *shape, unit);
+            cr.clip();
+            cr.translate(cx, cy);
+            cr.scale(*zoom, *zoom);
+            cr.translate(-cx, -cy);
+            if cr.set_source_surface(&source, 0.0, 0.0).is_ok() {
+                cr.source().set_filter(cairo::Filter::Good);
+                let _ = cr.paint();
+            }
+            cr.restore().ok();
+            spot_path(&cr, r, *shape, unit);
+            cr.set_source_rgba(1.0, 1.0, 1.0, 0.9);
+            cr.set_line_width((unit * 0.004).max(1.5));
+            let _ = cr.stroke();
+        }
+    }
+    copy_surface_into(&mut surface, img);
 }
 
 fn paint_label(cr: &Context, x: f64, y: f64, text: &str, colour: Colour, px: f64) {
@@ -242,6 +419,13 @@ fn surface_from_image(img: &RgbaImage) -> Option<ImageSurface> {
     Some(surface)
 }
 
+/// A `w`×`h` surface's pixels as an image.
+pub(super) fn image_from_surface(surface: &mut ImageSurface, w: u32, h: u32) -> RgbaImage {
+    let mut img = RgbaImage::new(w, h);
+    copy_surface_into(surface, &mut img);
+    img
+}
+
 fn copy_surface_into(surface: &mut ImageSurface, img: &mut RgbaImage) {
     surface.flush();
     let stride = surface.stride() as usize;
@@ -256,7 +440,7 @@ fn copy_surface_into(surface: &mut ImageSurface, img: &mut RgbaImage) {
 }
 
 fn draw_on_image(img: &mut RgbaImage, marks: &[Mark]) {
-    if marks.iter().all(|m| matches!(m, Mark::Pixelate { .. } | Mark::Blur { .. })) {
+    if marks.iter().all(|m| matches!(m, Mark::Pixelate { .. } | Mark::Blur { .. } | Mark::Spotlight { .. })) {
         return;
     }
     let (w, h) = img.dimensions();
@@ -313,7 +497,7 @@ mod tests {
         let src = sample();
         let before = src.clone();
         let mut st = EditState::default();
-        st.marks.push(Mark::Rect { rect: NormRect::new(0.2, 0.2, 0.5, 0.5), colour: RED, size: 0.04 });
+        st.marks.push(Mark::Rect { rect: NormRect::new(0.2, 0.2, 0.5, 0.5), colour: RED, size: 0.04, fill: false, radius: 0.0 });
         let _ = render(&src, &st);
         assert_eq!(src, before);
     }
@@ -321,11 +505,81 @@ mod tests {
     #[test]
     fn a_rectangle_is_drawn_where_asked() {
         let mut st = EditState::default();
-        st.marks.push(Mark::Rect { rect: NormRect::new(0.2, 0.2, 0.6, 0.6), colour: RED, size: 0.04 });
+        st.marks.push(Mark::Rect { rect: NormRect::new(0.2, 0.2, 0.6, 0.6), colour: RED, size: 0.04, fill: false, radius: 0.0 });
         let img = render(&RgbaImage::from_pixel(100, 100, Rgba([10, 20, 30, 255])), &st);
         assert_eq!(img.get_pixel(20, 50).0, [255, 0, 0, 255]);
         assert_eq!(img.get_pixel(50, 50).0, [10, 20, 30, 255]);
         assert_eq!(img.get_pixel(2, 2).0, [10, 20, 30, 255]);
+    }
+
+    #[test]
+    fn filled_shapes_cover_their_middle() {
+        let bg = Rgba([10, 20, 30, 255]);
+        let mut st = EditState::default();
+        st.marks.push(Mark::Rect { rect: NormRect::new(0.1, 0.1, 0.4, 0.4), colour: RED, size: 0.01, fill: true, radius: 0.1 });
+        st.marks.push(Mark::Ellipse { rect: NormRect::new(0.55, 0.55, 0.4, 0.4), colour: RED, size: 0.01, fill: true });
+        let img = render(&RgbaImage::from_pixel(100, 100, bg), &st);
+        assert_eq!(img.get_pixel(30, 30).0, [255, 0, 0, 255]);
+        assert_eq!(img.get_pixel(75, 75).0, [255, 0, 0, 255]);
+        // The rounded corner leaves the very corner alone.
+        assert_eq!(img.get_pixel(11, 11).0, bg.0);
+    }
+
+    #[test]
+    fn every_arrow_style_reaches_its_tip() {
+        for style in [ArrowStyle::Standard, ArrowStyle::Pointy, ArrowStyle::Curved, ArrowStyle::Double] {
+            let mut st = EditState::default();
+            st.marks.push(Mark::Arrow { from: (0.1, 0.5), to: (0.9, 0.5), colour: RED, size: 0.02, style });
+            let img = render(&RgbaImage::from_pixel(200, 200, Rgba([0, 0, 0, 255])), &st);
+            // Behind the tip along the head: a curved arrow arrives at an angle.
+            let a: f64 = if style == ArrowStyle::Curved { (40f64).atan2(80.0) } else { 0.0 };
+            let (x, y) = ((180.0 - 6.0 * a.cos()).round() as u32, (100.0 - 6.0 * a.sin()).round() as u32);
+            assert_eq!(img.get_pixel(x, y).0[0], 255, "{style:?} head");
+            let tail = img.get_pixel(44, 100).0[0];
+            assert!(tail > 100 || style == ArrowStyle::Curved, "{style:?} tail");
+        }
+    }
+
+    #[test]
+    fn a_spotlight_dims_outside_and_a_loupe_magnifies_inside() {
+        let mut src = RgbaImage::from_pixel(100, 100, Rgba([200, 200, 200, 255]));
+        // A dark dot at the middle grows under the loupe.
+        for y in 48..52 {
+            for x in 48..52 {
+                src.put_pixel(x, y, Rgba([0, 0, 0, 255]));
+            }
+        }
+        let mut st = EditState::default();
+        st.marks.push(Mark::Spotlight { rect: NormRect::new(0.3, 0.3, 0.4, 0.4), shape: SpotShape::Rect, zoom: 1.0 });
+        let out = render(&src, &st);
+        assert!(out.get_pixel(5, 5).0[0] < 120);
+        assert_eq!(out.get_pixel(40, 40).0, [200, 200, 200, 255]);
+        let mut st = EditState::default();
+        st.marks.push(Mark::Spotlight { rect: NormRect::new(0.3, 0.3, 0.4, 0.4), shape: SpotShape::Ellipse, zoom: 3.0 });
+        let out = render(&src, &st);
+        assert!(out.get_pixel(45, 50).0[0] < 60, "magnified dot");
+        assert!(src.get_pixel(45, 50).0[0] > 150);
+    }
+
+    #[test]
+    fn a_cut_closes_up_the_band_and_takes_marks_along() {
+        // Rows 0–9 grey, 10–19 green (to go), 20–39 grey with a red mark at row 30.
+        let mut src = RgbaImage::from_pixel(20, 40, Rgba([100, 100, 100, 255]));
+        for y in 10..20 {
+            for x in 0..20 {
+                src.put_pixel(x, y, Rgba([0, 255, 0, 255]));
+            }
+        }
+        let mut st = EditState::default();
+        st.marks.push(Mark::Fill { rect: NormRect::new(0.0, 0.75, 1.0, 0.025), colour: RED });
+        st.add_cut(Axis::Rows, 0.25, 0.5);
+        let out = render(&src, &st);
+        assert_eq!(out.dimensions(), (20, 30));
+        assert!(out.pixels().all(|p| p.0 != [0, 255, 0, 255]), "the band is gone");
+        assert_eq!(out.get_pixel(5, 20).0, [255, 0, 0, 255], "the mark moved up with its rows");
+        let mut cols = EditState::default();
+        cols.add_cut(Axis::Cols, 0.0, 0.5);
+        assert_eq!(render(&src, &cols).dimensions(), (10, 40));
     }
 
     #[test]
@@ -357,7 +611,7 @@ mod tests {
         sample().save(&src_path).unwrap();
         let before = std::fs::read(&src_path).unwrap();
         let mut st = EditState::default();
-        st.marks.push(Mark::Rect { rect: NormRect::new(0.1, 0.1, 0.5, 0.5), colour: RED, size: 0.05 });
+        st.marks.push(Mark::Rect { rect: NormRect::new(0.1, 0.1, 0.5, 0.5), colour: RED, size: 0.05, fill: false, radius: 0.0 });
         let src = image::open(&src_path).unwrap().to_rgba8();
         let out = render(&src, &st);
         let dest = dir.join("flat.png");

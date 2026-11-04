@@ -82,6 +82,10 @@ fn activate(request: &Request) -> Result<Value> {
         "window" => "--window",
         "fullscreen" => "--fullscreen",
         "scroll" => "--scroll",
+        "text" => "--text",
+        "qr" => "--qr",
+        "colour" => "--colour",
+        "clipboard" => "--clipboard",
         _ => bail!("unknown capture command"),
     };
     // The plugin cannot spawn GTK. Until Glimpse is allowed to launch nyx-capture,
@@ -95,12 +99,20 @@ fn command_hit(query: &str) -> Option<Hit> {
         "capture window" => "window",
         "capture screen" | "capture fullscreen" => "fullscreen",
         "capture scroll" => "scroll",
+        "capture text" | "copy text from screen" | "ocr" => "text",
+        "scan qr code" | "scan qr" | "capture qr" | "qr code" => "qr",
+        "pick colour" | "pick color" | "colour picker" | "color picker" => "colour",
+        "edit clipboard image" | "annotate clipboard" => "clipboard",
         _ => return None,
     };
     let (title, subtitle) = match token {
         "region" => ("Capture a region", "Drag a region on screen"),
         "window" => ("Capture a window", "Pick a window"),
         "scroll" => ("Scrolling capture", "Scroll a page; Capture stitches it into one tall shot"),
+        "text" => ("Capture text", "Copy the text in an area of the screen"),
+        "qr" => ("Scan a QR code", "Copy what a QR code on screen says"),
+        "colour" => ("Pick a colour", "Copy the colour of a pixel on screen"),
+        "clipboard" => ("Edit the clipboard image", "Open the copied image in the editor"),
         _ => ("Capture the screen", "The focused monitor"),
     };
     Some(Hit { id: format!("cmd:{token}"), title: title.into(), subtitle: subtitle.into(), action: Action::Activate { token: token.into() } })
@@ -112,6 +124,10 @@ fn command_preview(id: &str) -> Option<String> {
         "cmd:window" => Some("Pick a window. Run nyx-capture --window.".into()),
         "cmd:fullscreen" => Some("Capture the focused monitor. Run nyx-capture --fullscreen.".into()),
         "cmd:scroll" => Some("Scroll a region. Run nyx-capture --scroll.".into()),
+        "cmd:text" => Some("Copy the text in an area. Run nyx-capture --text.".into()),
+        "cmd:qr" => Some("Copy what a QR code says. Run nyx-capture --qr.".into()),
+        "cmd:colour" => Some("Copy a pixel's colour. Run nyx-capture --colour.".into()),
+        "cmd:clipboard" => Some("Annotate the copied image. Run nyx-capture --clipboard.".into()),
         _ => None,
     }
 }
@@ -172,6 +188,12 @@ mod tests {
         assert_eq!(scroll[0]["action"]["token"], "scroll");
         let action = answer(&request("activate", json!({"token": "scroll"}))).unwrap();
         assert_eq!(action["text"], "nyx-capture --scroll");
+        for (query, flag) in [("scan qr code", "--qr"), ("pick colour", "--colour"), ("capture text", "--text"), ("edit clipboard image", "--clipboard")] {
+            let hit = answer(&request("search", json!({"query": query}))).unwrap();
+            let token = hit[0]["action"]["token"].as_str().unwrap().to_string();
+            let action = answer(&request("activate", json!({"token": token}))).unwrap();
+            assert_eq!(action["text"], format!("nyx-capture {flag}"));
+        }
     }
 
     #[test]

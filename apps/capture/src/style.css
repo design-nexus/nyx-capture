@@ -171,6 +171,11 @@ window.capture-editor .editor-bar > menubutton > button:checked {
   box-shadow: inset 0 0 0 1px alpha(@theme_text, 0.18);
 }
 
+/* Before a custom colour is chosen: every hue. */
+.swatch-custom {
+  background: conic-gradient(#ff375f, #ffd60a, #30d158, #0a84ff, #bf5af2, #ff375f);
+}
+
 .dialog-card textview {
   background: @theme_bg;
   color: @theme_text;
@@ -190,40 +195,53 @@ window.capture-window.capture-card {
 
 /* ---------- Capture bar (on the overlay) ---------- */
 
-/* Raised over the dimmed still: a step lighter than the window, the segment track a
-   touch darker than the bar, the chosen segment lighter again. Built from the window
-   and text colours, since some themes' popover colour is darker than the window. */
+/* Raised over the dimmed still: a step lighter than the window. Every mode and option
+   is its own button a step darker than the bar, 2 px apart; the chosen mode is lit
+   like a Design 2.0 icon tile, its glow kept inside it. Built from the window and text
+   colours, since some themes' popover colour is darker than the window. */
 .capture-bar {
   background: mix(@theme_bg, @theme_text, 0.06);
   color: @theme_text;
   border-radius: var(--nyx-radius-dialog);
-  padding: 8px;
+  padding: 5px 8px;
   box-shadow: 0 12px 32px alpha(black, 0.55), 0 2px 6px alpha(black, 0.4);
 }
 
 window.capture-window .capture-bar .segmented {
-  background: mix(@theme_bg, @theme_text, 0.03);
-  border-radius: var(--nyx-radius-small);
-  padding: 2px;
+  background: transparent;
+  padding: 0;
 }
 
 window.capture-window .capture-bar .segmented button.segment {
-  min-height: 28px;
+  min-height: 32px;
   padding: 0 11px;
-  border-radius: 6px;
+  border-radius: var(--nyx-radius-small);
   font-size: 12.5px;
-  background: transparent;
+  background: mix(@theme_bg, @theme_text, 0.02);
   color: mix(@theme_text, @theme_bg, 0.22);
+}
+
+window.capture-window .capture-bar .segmented button.segment.icon-only {
+  min-width: 32px;
+  padding: 0;
 }
 
 window.capture-window .capture-bar .segmented button.segment + button.segment {
   margin-left: 2px;
 }
 
-window.capture-window .capture-bar .segmented button.segment:checked {
+window.capture-window .capture-bar .segmented button.segment:hover {
   background: mix(@theme_bg, @theme_text, 0.09);
   color: @theme_text;
-  box-shadow: 0 1px 3px alpha(black, 0.35);
+}
+
+window.capture-window .capture-bar .segmented button.segment:checked {
+  background-color: mix(@theme_bg, @theme_text, 0.09);
+  background-image:
+    radial-gradient(circle at 20% 10%, alpha(@theme_accent, 0.40), alpha(@theme_accent, 0) 80%),
+    linear-gradient(135deg, mix(@theme_bg, @theme_text, 0.09), mix(@theme_bg, black, 0.1));
+  color: @theme_text;
+  box-shadow: inset 0 0 10px alpha(@theme_accent, 0.28);
 }
 
 window.capture-window .capture-bar .segmented button.segment:checked image {
@@ -239,11 +257,12 @@ window.capture-window .capture-bar button.icon-button {
   min-height: 32px;
   padding: 0;
   border-radius: var(--nyx-radius-small);
+  background: mix(@theme_bg, @theme_text, 0.02);
   color: mix(@theme_text, @theme_bg, 0.22);
 }
 
 window.capture-window .capture-bar button.icon-button:hover {
-  background: alpha(@theme_text, 0.07);
+  background: mix(@theme_bg, @theme_text, 0.09);
   color: @theme_text;
 }
 
@@ -255,7 +274,7 @@ window.capture-window .capture-bar button.icon-button:checked {
 .capture-bar-sep {
   min-width: 1px;
   min-height: 20px;
-  margin: 0 4px;
+  margin: 0 7px;
   background: mix(@theme_bg, @theme_text, 0.16);
 }
 
@@ -267,7 +286,7 @@ window.capture-window .capture-bar button.icon-button:checked {
 
 .capture-kbd {
   color: mix(@theme_text, @theme_bg, 0.22);
-  background: mix(@theme_bg, @theme_text, 0.03);
+  background: mix(@theme_bg, @theme_text, 0.02);
   border-radius: 5px;
   padding: 2px 6px;
   font-size: 11px;
@@ -283,10 +302,17 @@ window.capture-window .capture-bar dropdown.capture-format > button {
   min-height: 32px;
   padding: 0 6px 0 11px;
   border-radius: var(--nyx-radius-small);
-  background: mix(@theme_bg, @theme_text, 0.03);
+  background: mix(@theme_bg, @theme_text, 0.02);
   color: @theme_text;
   font-size: 12.5px;
   font-weight: 400;
+}
+
+/* A note on screen after a copied colour or QR code, with room for its shadow. */
+.capture-notice {
+  margin: 14px;
+  padding: 10px 16px;
+  color: @theme_text;
 }
 
 /* ---------- Scrolling capture ---------- */

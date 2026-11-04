@@ -7,9 +7,12 @@ use image::RgbaImage;
 use nyx_capture_core::ocr::OcrResult;
 use nyx_capture_core::clipboard;
 
-pub fn show(parent: &impl IsA<gtk::Window>, img: &RgbaImage, result: &OcrResult) {
+/// The text over the picture it came from. Without a parent (Text mode's review, with
+/// the history window hidden) it stands alone.
+pub fn show(parent: Option<&gtk::Window>, img: &RgbaImage, result: &OcrResult) {
     let (dialog, card) = widgets::dialog("Text", 640);
-    dialog.set_transient_for(Some(parent));
+    dialog.set_transient_for(parent);
+    dialog.add_css_class("capture-window");
     dialog.set_default_height(520);
 
     let canvas = gtk::DrawingArea::new();

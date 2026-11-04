@@ -89,6 +89,36 @@ pub fn recognize(img: &DynamicImage, mode: OcrMode, langs: &str) -> Result<OcrRe
     }
 }
 
+/// Wrapped lines joined into paragraphs: a blank line still separates them, and a
+/// word hyphenated across a line end is put back together.
+pub fn unwrap_lines(text: &str) -> String {
+    let mut out = String::new();
+    let mut para = String::new();
+    let flush = |out: &mut String, para: &mut String| {
+        if !para.is_empty() {
+            if !out.is_empty() {
+                out.push_str("\n\n");
+            }
+            out.push_str(para);
+            para.clear();
+        }
+    };
+    for line in text.lines().map(str::trim) {
+        if line.is_empty() {
+            flush(&mut out, &mut para);
+            continue;
+        }
+        if para.ends_with('-') && line.starts_with(|c: char| c.is_lowercase()) {
+            para.pop();
+        } else if !para.is_empty() {
+            para.push(' ');
+        }
+        para.push_str(line);
+    }
+    flush(&mut out, &mut para);
+    out
+}
+
 fn scale_result(mut result: OcrResult, sx: f32, sy: f32) -> OcrResult {
     if (sx - 1.0).abs() < f32::EPSILON && (sy - 1.0).abs() < f32::EPSILON {
         return result;
@@ -143,6 +173,13 @@ mod tests {
         let chosen = pick_better(tess("Open the settings window", 90.0), rapid("Open the settings window", 95.0), &img);
         assert_eq!(chosen.engine, "tesseract");
         assert!(!chosen.fallback_used);
+    }
+
+    #[test]
+    fn wrapped_lines_become_paragraphs() {
+        assert_eq!(unwrap_lines("The quick brown\nfox jumps over the la-\nzy dog.\n\nNext one\nhere."), "The quick brown fox jumps over the lazy dog.\n\nNext one here.");
+        assert_eq!(unwrap_lines("A -\nB"), "A - B");
+        assert_eq!(unwrap_lines(""), "");
     }
 
     #[test]

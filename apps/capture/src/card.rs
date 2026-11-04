@@ -48,7 +48,7 @@ impl Done {
             Done::CopiedSaved => format!("Copied · saved to {folder}"),
             Done::Copied => "Copied".into(),
             Done::Saved => format!("Saved to {folder}"),
-            Done::TextCopied => format!("Text copied · saved to {folder}"),
+            Done::TextCopied => "Text copied".into(),
             Done::Video(format) => format!("Saved to {folder} · {format}"),
         }
     }
@@ -257,7 +257,7 @@ fn build(
         mark.set_valign(gtk::Align::Start);
         thumb_box.add_overlay(&mark);
     }
-    thumb_box.set_tooltip_text(Some("Drag into another app"));
+    thumb_box.set_tooltip_text(Some("Drag to another app"));
 
     // What happened to it, and its size.
     let status = gtk::Label::new(None);
@@ -278,8 +278,8 @@ fn build(
     // Actions: Edit, Copy, Text for a shot; Play and Copy file for a recording.
     let edit = if video { action_button("capture-play-symbolic", "Play") } else { action_button("capture-edit-symbolic", "Edit") };
     edit.add_css_class("suggested-action");
-    let copy = action_button("capture-copy-symbolic", if video { "Copy the file" } else { "Copy again" });
-    let text = action_button("capture-text-symbolic", "Copy its text");
+    let copy = action_button("capture-copy-symbolic", if video { "Copy file" } else { "Copy image" });
+    let text = action_button("capture-text-symbolic", "Copy text");
     text.set_visible(!video);
     let folder = action_button("capture-folder-symbolic", "Show in folder");
     let pin = gtk::ToggleButton::new();
@@ -499,7 +499,7 @@ fn set_kept(card: &Rc<Card>, kept: bool) {
     card.elapsed.set(Duration::ZERO);
     card.badge.set_visible(kept);
     card.life.set_visible(!kept && card_secs().is_some());
-    card.pin.set_tooltip_text(Some(if kept { "Let it go" } else { "Keep on screen" }));
+    card.pin.set_tooltip_text(Some(if kept { "Stop keeping on screen" } else { "Keep on screen" }));
     sync_status(card);
     restack();
 }

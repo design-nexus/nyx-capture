@@ -28,7 +28,7 @@ pub const SHORTCUTS: &[(&[&str], &str)] = &[
     (&["Ctrl", "Shift", "L"], "Scrolling capture"),
     (&["Ctrl", "N"], "Capture a region"),
     (&["Ctrl", "Shift", "N"], "Capture a window"),
-    (&["Ctrl", "Shift", "F"], "Capture the focused monitor"),
+    (&["Ctrl", "Shift", "F"], "Capture the screen"),
     (&["Ctrl", "R"], "Start or stop a recording"),
     (&["Ctrl", "Shift", "R"], "Record a region"),
     (&["Ctrl", "Alt", "P"], "Pause or resume a recording"),
@@ -380,7 +380,7 @@ fn build(app: &gtk::Application) {
     // The app and the page, the sidebar toggle; search (or the selection) in the
     // middle; what's going on, the capture actions and Settings at the end.
     let header = chrome::app_header(&window, "capture-region-symbolic", "Capture");
-    let collapse = widgets::bar_button("sidebar-show-symbolic", "Collapse the sidebar (Ctrl+B)");
+    let collapse = widgets::bar_button("sidebar-show-symbolic", "Collapse sidebar (Ctrl+B)");
     collapse.connect_clicked(|_| toggle_sidebar());
     header.start.append(&collapse);
 
@@ -413,7 +413,7 @@ fn build(app: &gtk::Application) {
             window_btn.connect_clicked(|_| capture_now(CaptureMode::SelectWindow));
             toolbar.append(&window_btn);
         }
-        let screen = widgets::bar_button("video-display-symbolic", "Capture the focused monitor (Ctrl+Shift+F)");
+        let screen = widgets::bar_button("video-display-symbolic", "Capture the screen (Ctrl+Shift+F)");
         screen.connect_clicked(|_| capture_now(CaptureMode::FullDesktop));
         toolbar.append(&screen);
         if tools.can_scroll() {
@@ -423,7 +423,7 @@ fn build(app: &gtk::Application) {
         }
     }
     if tools.can_record() {
-        let rec = widgets::bar_button("media-record-symbolic", "Start a recording (Ctrl+R)");
+        let rec = widgets::bar_button("media-record-symbolic", "Start recording (Ctrl+R)");
         rec.connect_clicked(|_| toggle_record(false));
         RECORD_BTN.with(|b| *b.borrow_mut() = Some(rec.clone()));
         toolbar.append(&rec);
@@ -439,7 +439,7 @@ fn build(app: &gtk::Application) {
         refresh_record_button();
     }
     if tools.can_webcam() {
-        let cam = widgets::bar_button("camera-web-symbolic", "Picture-in-picture webcam");
+        let cam = widgets::bar_button("camera-web-symbolic", "Show webcam");
         cam.connect_clicked(|_| toggle_webcam());
         CAM_BTN.with(|b| *b.borrow_mut() = Some(cam.clone()));
         toolbar.append(&cam);
@@ -453,9 +453,9 @@ fn build(app: &gtk::Application) {
     let selection_count = widgets::label("", "selection-chip");
     selection_count.set_valign(gtk::Align::Center);
     selection_count.set_margin_end(4);
-    let delete = widgets::bar_button("user-trash-symbolic", "Delete the selected captures (Delete)");
+    let delete = widgets::bar_button("user-trash-symbolic", "Delete selected (Delete)");
     delete.connect_clicked(|_| delete_later(crate::grid::selected()));
-    let deselect = widgets::bar_button("edit-clear-symbolic", "Clear the selection (Esc)");
+    let deselect = widgets::bar_button("edit-clear-symbolic", "Clear selection (Esc)");
     deselect.connect_clicked(|_| crate::grid::clear_selection());
     selection.append(&selection_count);
     selection.append(&delete);
@@ -603,6 +603,54 @@ pub fn capture_from_key(app: &gtk::Application, mode: Option<&str>) {
     capture_with_bar(app, crate::overlay::Mode::parse(&mode));
 }
 
+/// `nyx-capture FILE`: the image in the editor, outside history.
+pub fn edit_file(path: PathBuf) {
+    let hold = gio::Application::default().map(|a| a.hold());
+    let title = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    crate::cmd::background(
+        move || image::open(&path).map(|i| i.to_rgba8()).map_err(|e| anyhow::anyhow!("{}: {e}", path.display())),
+        move |result| {
+            match result {
+                Ok(img) => crate::editor::open_image(img, &title),
+                Err(err) => open_failed(&err),
+            }
+            drop(hold);
+        },
+    );
+}
+
+/// `nyx-capture --clipboard`: the copied image in the editor, outside history.
+pub fn edit_clipboard() {
+    let hold = gio::Application::default().map(|a| a.hold());
+    crate::cmd::background(
+        || clipboard::paste_image().map(|i| i.to_rgba8()),
+        move |result| {
+            match result {
+                Ok(img) => crate::editor::open_image(img, "Clipboard image"),
+                Err(err) => open_failed(&err),
+            }
+            drop(hold);
+        },
+    );
+}
+
+/// An image that couldn't be opened: said in the window when it's up, else on screen.
+fn open_failed(err: &anyhow::Error) {
+    crate::naming::log_error("open", err);
+    if window().is_some_and(|w| w.is_visible()) {
+        toast(&err.to_string());
+    } else if let Ok((_, area)) = crate::overlay::focused() {
+        crate::notice::show(area, &err.to_string(), None, None);
+    }
+}
+
+/// The capture bar on `mode`, from inside the app (Assistant).
+pub fn open_bar(mode: &str) {
+    if let Some(app) = gio::Application::default().and_then(|a| a.downcast::<gtk::Application>().ok()) {
+        capture_with_bar(&app, crate::overlay::Mode::parse(mode));
+    }
+}
+
 /// The capture bar starting on `start`: the Print key, and the window's capture buttons.
 fn capture_with_bar(app: &gtk::Application, start: crate::overlay::Mode) {
     if crate::overlay::is_open() {
@@ -678,6 +726,14 @@ fn take_picked(still: nyx_capture_core::capture::Shot, picked: crate::overlay::P
             crate::recording::start(&picked, still.area, restore, hold);
             return;
         }
+        crate::overlay::Mode::Colour => {
+            restore();
+            if let Some(rgb) = picked.colour {
+                copy_colour(rgb, picked.rect);
+            }
+            drop(hold);
+            return;
+        }
         _ => {}
     }
     let delay = picked.extras.delay;
@@ -715,13 +771,23 @@ fn deliver_shot(shot: nyx_capture_core::capture::Shot, picked: crate::overlay::P
         String::new()
     };
     LAST_TITLE.with(|t| *t.borrow_mut() = title.clone());
-    let after = if picked.extras.edit {
-        After::Edit
-    } else if picked.extras.text {
-        After::Ocr
-    } else {
-        after_from_prefs()
+    let after = match picked.mode {
+        crate::overlay::Mode::Text => After::Ocr,
+        crate::overlay::Mode::Qr => After::Qr,
+        _ if picked.extras.edit => After::Edit,
+        _ => after_from_prefs(),
     };
+    if after == After::Qr {
+        restore();
+        read_qr(shot, picked.rect, Some(hold));
+        return;
+    }
+    if after == After::Ocr {
+        restore();
+        remember(&shot);
+        read_text(shot, Some(hold));
+        return;
+    }
     if after == After::Edit {
         crate::card::unhide_all();
         // The editor replaces the history window until it closes.
@@ -737,10 +803,8 @@ fn deliver_shot(shot: nyx_capture_core::capture::Shot, picked: crate::overlay::P
         drop(hold);
         return;
     }
-    let path = matches!(after, After::Quick | After::Save | After::Ocr).then(|| crate::naming::next_path(&picked.app));
+    let path = matches!(after, After::Quick | After::Save).then(|| crate::naming::next_path(&picked.app));
     let tag = (picked.mode == crate::overlay::Mode::Scroll).then_some("Scrolled");
-    let p = prefs::get();
-    let (langs, mode) = (p.ocr_langs, OcrMode::parse(&p.ocr_mode));
     let work_shot = shot.clone();
     let work_path = path.clone();
     crate::cmd::background(
@@ -755,11 +819,6 @@ fn deliver_shot(shot: nyx_capture_core::capture::Shot, picked: crate::overlay::P
                     crate::card::Done::Copied
                 }
                 After::Save => crate::card::Done::Saved,
-                After::Ocr => {
-                    let text = recognize(&work_shot.image, mode, &langs)?.text;
-                    clipboard::copy_text(&text)?;
-                    crate::card::Done::TextCopied
-                }
                 _ => {
                     clipboard::copy_png(&png)?;
                     crate::card::Done::CopiedSaved
@@ -777,6 +836,90 @@ fn deliver_shot(shot: nyx_capture_core::capture::Shot, picked: crate::overlay::P
             drop(hold);
         },
     );
+}
+
+/// Text mode: read the shot, then copy the text (joined into paragraphs unless line
+/// breaks are kept) with a card, or show it first when Review is on.
+fn read_text(shot: nyx_capture_core::capture::Shot, hold: Option<gio::ApplicationHoldGuard>) {
+    let p = prefs::get();
+    let (langs, mode, keep, review) = (p.ocr_langs, OcrMode::parse(&p.ocr_mode), p.ocr_keep_lines, p.ocr_review);
+    let image = shot.image.clone();
+    crate::cmd::background(
+        move || -> anyhow::Result<nyx_capture_core::OcrResult> {
+            let mut r = recognize(&image, mode, &langs)?;
+            if !keep {
+                r.text = nyx_capture_core::ocr::unwrap_lines(&r.text);
+            }
+            if !review && !r.text.trim().is_empty() {
+                clipboard::copy_text(&r.text)?;
+            }
+            Ok(r)
+        },
+        move |result| {
+            match result {
+                Ok(r) if r.text.trim().is_empty() => crate::notice::show(shot.area, "No text found", None, None),
+                Ok(r) if review => crate::ocr_view::show(None, &shot.image.to_rgba8(), &r),
+                Ok(_) => crate::card::show(shot, None, crate::card::Done::TextCopied, None),
+                Err(err) => {
+                    crate::naming::log_error("text", &err);
+                    crate::notice::show(shot.area, &err.to_string(), None, None);
+                }
+            }
+            drop(hold);
+        },
+    );
+}
+
+/// QR mode: decode the shot and copy what it says, marked sensitive. Never kept, logged
+/// or shown: the note names only its kind.
+fn read_qr(shot: nyx_capture_core::capture::Shot, area: nyx_capture_core::geom::Rect, hold: Option<gio::ApplicationHoldGuard>) {
+    crate::cmd::background(
+        move || -> anyhow::Result<Option<String>> {
+            let text = nyx_capture_core::qr::decode(&shot.image);
+            if let Some(t) = &text {
+                clipboard::copy_secret(t)?;
+            }
+            Ok(text)
+        },
+        move |result| {
+            match result {
+                Ok(Some(text)) => announce_qr(&text, area),
+                Ok(None) => crate::notice::show(area, "No QR code found", None, None),
+                Err(err) => crate::notice::show(area, &err.to_string(), None, None),
+            }
+            drop(hold);
+        },
+    );
+}
+
+/// The note for a copied QR code, with Open for a link (opened at once when Open links
+/// is on).
+fn announce_qr(text: &str, area: nyx_capture_core::geom::Rect) {
+    let kind = nyx_capture_core::qr::classify(text);
+    let link = nyx_capture_core::qr::link(text).map(str::to_string);
+    let open = |uri: &str| {
+        if let Err(err) = gio::AppInfo::launch_default_for_uri(uri, None::<&gio::AppLaunchContext>) {
+            crate::naming::log_error("qr", &anyhow::anyhow!("{err}"));
+        }
+    };
+    if let Some(uri) = &link
+        && prefs::get().qr_open_links
+    {
+        open(uri);
+        crate::notice::show(area, &format!("{} · opened", kind.copied()), None, None);
+        return;
+    }
+    let action = link.map(|uri| crate::notice::Action { label: "Open", run: Rc::new(move || open(&uri)) });
+    crate::notice::show(area, &kind.copied(), None, action);
+}
+
+/// Colour mode: copy the pixel's value in the chosen format.
+fn copy_colour(rgb: [u8; 3], area: nyx_capture_core::geom::Rect) {
+    let value = nyx_capture_core::colour::format(rgb, nyx_capture_core::colour::Format::parse(&prefs::get().colour_format));
+    match clipboard::copy_text(&value) {
+        Ok(()) => crate::notice::show(area, &format!("Copied {value}"), Some(rgb), None),
+        Err(err) => crate::notice::show(area, &err.to_string(), None, None),
+    }
 }
 
 pub fn capture_with(mode: CaptureMode, after: After, delay: u32) {
@@ -892,6 +1035,14 @@ fn finish_shot(
 ) {
     match after {
         After::Edit => crate::editor::open(shot),
+        After::Qr => {
+            let area = shot.area;
+            read_qr(shot, area, None);
+        }
+        After::Ocr => {
+            remember(&shot);
+            read_text(shot, None);
+        }
         After::Pin => {
             remember(&shot);
             crate::pin::open_shot(shot);
@@ -924,7 +1075,7 @@ fn finish_shot(
 }
 
 fn start_overlay(mode: CaptureMode, after: After, langs: String, ocr_mode: OcrMode, save_path: Option<PathBuf>, restore: Rc<dyn Fn()>) {
-    let snap = matches!(mode, CaptureMode::SelectWindow);
+    let overlay_mode = crate::overlay::mode_for(&mode, after);
     if crate::overlay::supported() {
         match crate::overlay::freeze() {
             Ok(still) => {
@@ -932,8 +1083,8 @@ fn start_overlay(mode: CaptureMode, after: After, langs: String, ocr_mode: OcrMo
                 let restore_done = restore.clone();
                 let langs_done = langs.clone();
                 let save_picked = save_path.clone();
-                match crate::overlay::pick(still, snap, move |rect| {
-                    let Some(rect) = rect else {
+                match crate::overlay::pick_in(still, overlay_mode, move |picked| {
+                    let Some(rect) = picked.map(|p| p.rect) else {
                         restore_done();
                         return;
                     };
@@ -1273,7 +1424,7 @@ pub(crate) fn refresh_record_button() {
             btn.add_css_class("destructive-action");
         } else {
             btn.set_icon_name("media-record-symbolic");
-            btn.set_tooltip_text(Some("Start a recording (Ctrl+R)"));
+            btn.set_tooltip_text(Some("Start recording (Ctrl+R)"));
             btn.remove_css_class("destructive-action");
         }
     });
@@ -1300,10 +1451,10 @@ pub(crate) fn refresh_cam_button() {
         let Some(btn) = b.borrow().clone() else { return };
         if nyx_capture_core::webcam::active() {
             btn.add_css_class("suggested-action");
-            btn.set_tooltip_text(Some("Hide webcam overlay"));
+            btn.set_tooltip_text(Some("Hide webcam"));
         } else {
             btn.remove_css_class("suggested-action");
-            btn.set_tooltip_text(Some("Picture-in-picture webcam"));
+            btn.set_tooltip_text(Some("Show webcam"));
         }
     });
 }
@@ -1605,6 +1756,8 @@ fn report_capture(result: Result<action::Outcome, anyhow::Error>) {
         Ok(action::Outcome::Saved(path)) => toast(&format!("Saved {}", path.display())),
         Ok(action::Outcome::Quick(path)) => toast(&format!("Copied and saved {}", path.display())),
         Ok(action::Outcome::Text(_)) => toast("Copied text"),
+        Ok(action::Outcome::Qr(text)) => toast(&nyx_capture_core::qr::classify(&text).copied()),
+        Ok(action::Outcome::Colour(value)) => toast(&format!("Copied {value}")),
         Err(err) => toast(&err.to_string()),
     }
 }
