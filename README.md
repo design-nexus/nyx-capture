@@ -16,6 +16,17 @@ in place of `install.sh`.
 
 ## Capturing
 
+- **The Print key** (`nyx-capture --capture`) freezes the screen and opens the capture bar
+  at the bottom: **Smart** (drag a region, click a window, or click empty space for the
+  screen), **Window** or **Screen**, plus three choices for this shot: edit afterwards (E),
+  copy its text instead (O), wait 3 seconds (D). Size and app show beside the pointer, with
+  a magnifier. Esc, or the key again, cancels.
+- After the shot (Settings → Capture → After a screenshot): copy and save it (the default),
+  copy it, edit it, or pin it. A **shot card** then sits in the corner with Edit, Copy,
+  Copy text, Show in folder, Keep and Close; drag its picture into any app. It goes after
+  Card stays (pointing at it stops the clock); kept cards stay, and new ones stack above.
+- Saved shots go to the Save folder, named by the File name pattern (`{date}`, `{time}`,
+  `{app}`); both are settings, read on every capture.
 - **Region** drags on a frozen still of the screen, with a magnifier, the size, and snapping
   to windows on screen. **Window** picks a window; **Screen** takes the focused monitor.
   Without layer-shell, slurp picks the region.
@@ -68,6 +79,7 @@ once its models are downloaded (Settings → OCR → RapidOCR models).
 
 ```
 nyx-capture                    History window
+nyx-capture --capture          The capture bar (for the Print key)
 nyx-capture --region           Drag a region, copy the PNG
 nyx-capture --window           Pick a window
 nyx-capture --active-window    The focused window
@@ -88,9 +100,9 @@ nyx-capture --toggle           Close the window if it's open, otherwise open it
 Suggested Hyprland binds (install doesn't write them):
 
 ```lua
+o.bind("PRINT", "Capture", "nyx-capture --capture")
 o.bind("SUPER + SHIFT + S", "Capture region", "nyx-capture --region")
 o.bind("SUPER + SHIFT + W", "Capture window", "nyx-capture --window")
-o.bind("PRINT", "Capture screen", "nyx-capture --fullscreen")
 o.bind("SUPER + SHIFT + O", "Capture text", "nyx-capture --ocr")
 ```
 

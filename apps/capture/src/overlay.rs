@@ -16,22 +16,133 @@ use std::rc::Rc;
 
 /// A click that covers less than this many layout pixels is a snap, not a drag.
 const CLICK_AREA: i64 = 20;
-const MAG_SIZE: f64 = 128.0;
+const MAG_SIZE: f64 = 116.0;
 const MAG_ZOOM: f64 = 4.0;
+
+/// What a click or drag captures.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Mode {
+    /// Drag a region, click a window, or click empty space for the screen.
+    Smart,
+    /// Click a window.
+    Window,
+    /// The whole monitor.
+    Screen,
+}
+
+impl Mode {
+    pub fn parse(s: &str) -> Mode {
+        match s {
+            "window" => Mode::Window,
+            "screen" => Mode::Screen,
+            _ => Mode::Smart,
+        }
+    }
+
+    fn hint(self) -> &'static str {
+        match self {
+            Mode::Smart => "Drag a region · click a window · click empty space for the screen",
+            Mode::Window => "Click a window",
+            Mode::Screen => "Click or press Enter for the whole screen",
+        }
+    }
+}
+
+/// The capture bar's choices for this shot only.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Extras {
+    pub edit: bool,
+    pub text: bool,
+    pub delay: bool,
+}
+
+/// What was chosen: the area, the window class under it, and the bar's choices.
+#[derive(Clone, Debug)]
+pub struct Picked {
+    pub rect: Rect,
+    /// Window class, empty for a screen.
+    pub app: String,
+    /// Window title, empty for a screen.
+    pub title: String,
+    pub extras: Extras,
+}
+
+/// A window (with its class) or a monitor (empty class) the pointer can light.
+#[derive(Clone)]
+struct Target {
+    rect: Rect,
+    class: String,
+    title: String,
+    window: bool,
+}
+
+struct Bar {
+    modes: Vec<(Mode, gtk::ToggleButton)>,
+    edit: gtk::ToggleButton,
+    text: gtk::ToggleButton,
+    delay: gtk::ToggleButton,
+    hint: gtk::Label,
+}
 
 struct Session {
     still: Shot,
     surface: ImageSurface,
-    snap: bool,
+    mode: Mode,
+    extras: Extras,
     dragging: bool,
     origin: Option<(i32, i32)>,
     current: Option<Rect>,
-    hinted: Option<Rect>,
+    hinted: Option<Target>,
     cursor: (i32, i32),
-    candidates: Vec<Rect>,
+    targets: Vec<Target>,
     canvases: Vec<gtk::DrawingArea>,
     windows: Vec<gtk::Window>,
-    on_pick: Option<Box<dyn FnOnce(Option<Rect>)>>,
+    bar: Option<Bar>,
+    on_pick: Option<Box<dyn FnOnce(Option<Picked>)>>,
+}
+
+impl Session {
+    /// What the pointer would capture now, in this mode.
+    fn target_at(&self, pt: (i32, i32)) -> Option<Target> {
+        self.targets
+            .iter()
+            .filter(|t| t.rect.contains(pt.0, pt.1))
+            .filter(|t| match self.mode {
+                Mode::Smart => true,
+                Mode::Window => t.window,
+                Mode::Screen => !t.window,
+            })
+            .min_by_key(|t| t.rect.area())
+            .cloned()
+    }
+
+    /// The window under the middle of `r` (class, title), for the file name and the card.
+    fn window_under(&self, r: Rect) -> (String, String) {
+        let (cx, cy) = (r.x + r.w / 2, r.y + r.h / 2);
+        self.targets
+            .iter()
+            .filter(|t| t.window && t.rect.contains(cx, cy))
+            .min_by_key(|t| t.rect.area())
+            .map(|t| (t.class.clone(), t.title.clone()))
+            .unwrap_or_default()
+    }
+
+    fn set_mode(&mut self, mode: Mode) {
+        self.mode = mode;
+        self.dragging = false;
+        self.origin = None;
+        self.current = None;
+        self.hinted = self.target_at(self.cursor);
+        if let Some(bar) = &self.bar {
+            bar.hint.set_text(mode.hint());
+        }
+    }
+
+    /// The bar's button for `mode`, to select after the session is released (its
+    /// toggled handler reads the session).
+    fn mode_button(&self, mode: Mode) -> Option<gtk::ToggleButton> {
+        self.bar.as_ref()?.modes.iter().find(|(m, _)| *m == mode).map(|(_, b)| b.clone())
+    }
 }
 
 type DelayDone = Box<dyn FnOnce(bool)>;
@@ -61,8 +172,20 @@ pub fn supported() -> bool {
     gtk4_layer_shell::is_supported()
 }
 
+/// A still of the focused monitor, which the overlay then covers. grim can crash
+/// capturing every output at once.
 pub fn freeze() -> anyhow::Result<Shot> {
-    Grim.capture(&CaptureRequest { mode: CaptureMode::FullDesktop })
+    let name = test_monitor().or_else(|| select::focused_monitor().ok().flatten().map(|m| m.name));
+    let mode = match name {
+        Some(name) => CaptureMode::Monitor(name),
+        None => CaptureMode::FullDesktop,
+    };
+    Grim.capture(&CaptureRequest { mode })
+}
+
+/// Debug builds on a virtual monitor.
+pub fn testing() -> bool {
+    test_monitor().is_some()
 }
 
 /// GTK + theme for the cold `--region` path, which never opens the history window.
@@ -235,45 +358,58 @@ fn finish_delay(proceed: bool) {
 
 /// Show the overlay and invoke `on_pick` with a layout rect, or `None` on cancel.
 pub fn pick(still: Shot, snap: bool, on_pick: impl FnOnce(Option<Rect>) + 'static) -> anyhow::Result<()> {
+    open(still, if snap { Mode::Window } else { Mode::Smart }, false, Box::new(move |p: Option<Picked>| on_pick(p.map(|p| p.rect))))
+}
+
+/// The Print key's overlay: the capture bar at the bottom, starting on `start`.
+pub fn pick_with_bar(still: Shot, start: Mode, on_pick: impl FnOnce(Option<Picked>) + 'static) -> anyhow::Result<()> {
+    open(still, start, true, Box::new(on_pick))
+}
+
+fn open(still: Shot, mode: Mode, with_bar: bool, on_pick: Box<dyn FnOnce(Option<Picked>)>) -> anyhow::Result<()> {
     if SESSION.with(|s| s.borrow().is_some()) {
         finish(None);
     }
-    let outputs = outputs()?;
+    // Only the monitors the still shows get an overlay.
+    let mut outputs = outputs()?;
+    outputs.retain(|(_, r)| intersection(*r, still.area).is_some());
     if outputs.is_empty() {
         anyhow::bail!("no monitors");
     }
     let surface = still_surface(&still).ok_or_else(|| anyhow::anyhow!("the freeze could not be drawn"))?;
-    let mut candidates = Vec::new();
-    if let Ok(list) = select::monitors() {
-        candidates.extend(list.into_iter().map(|m| m.geometry));
-    }
+    let mut targets: Vec<Target> = outputs.iter().map(|(_, r)| Target { rect: *r, class: String::new(), title: String::new(), window: false }).collect();
     if let Ok(list) = select::windows() {
-        candidates.extend(list.into_iter().filter(|w| !w.hidden).map(|w| w.geometry));
+        targets.extend(list.into_iter().filter(|w| !w.hidden).map(|w| Target { rect: w.geometry, class: w.class, title: w.title, window: true }));
     }
-    if candidates.is_empty() {
-        candidates.extend(outputs.iter().map(|(_, r)| *r));
-    }
+    let targets: Vec<Target> = targets.into_iter().filter_map(|t| Some(Target { rect: intersection(t.rect, still.area)?, ..t })).collect();
     // Start where the pointer is, with the window under it already lit, rather than a
     // dark screen and a magnifier in the corner until the mouse moves.
-    let cursor = pointer().unwrap_or((i32::MIN, i32::MIN));
-    let hinted = select::snap_rect_at(cursor, &candidates);
+    let cursor = test_pointer().or_else(pointer).unwrap_or((i32::MIN, i32::MIN));
     let session = Rc::new(RefCell::new(Session {
         still,
         surface,
-        snap,
+        mode,
+        extras: Extras::default(),
         dragging: false,
         origin: None,
-        current: if snap { hinted } else { None },
-        hinted,
+        current: None,
+        hinted: None,
         cursor,
-        candidates,
+        targets,
         canvases: Vec::new(),
         windows: Vec::new(),
-        on_pick: Some(Box::new(on_pick)),
+        bar: None,
+        on_pick: Some(on_pick),
     }));
+    {
+        let mut s = session.borrow_mut();
+        s.hinted = s.target_at(cursor);
+    }
     SESSION.with(|s| *s.borrow_mut() = Some(session.clone()));
+    // The bar goes on the monitor with the pointer.
+    let bar_output = outputs.iter().position(|(_, r)| r.contains(cursor.0, cursor.1)).unwrap_or(0);
 
-    for (monitor, layout) in outputs {
+    for (i, (monitor, layout)) in outputs.into_iter().enumerate() {
         let window = gtk::Window::new();
         window.init_layer_shell();
         window.set_layer(Layer::Overlay);
@@ -289,6 +425,7 @@ pub fn pick(still: Shot, snap: bool, on_pick: impl FnOnce(Option<Rect>) + 'stati
         let g = monitor.geometry();
         window.set_default_size(g.width(), g.height());
         window.set_size_request(g.width(), g.height());
+        window.add_css_class("capture-window");
         window.add_css_class("capture-overlay");
         window.set_decorated(false);
         window.set_resizable(false);
@@ -311,7 +448,16 @@ pub fn pick(still: Shot, snap: bool, on_pick: impl FnOnce(Option<Rect>) + 'stati
         });
         wire_pointer(&canvas, session.clone(), layout);
         wire_keys(&window, session.clone());
-        window.set_child(Some(&canvas));
+        if with_bar && i == bar_output {
+            let stack = gtk::Overlay::new();
+            stack.set_child(Some(&canvas));
+            let (bar, parts) = build_bar(&session);
+            stack.add_overlay(&bar);
+            session.borrow_mut().bar = Some(parts);
+            window.set_child(Some(&stack));
+        } else {
+            window.set_child(Some(&canvas));
+        }
         // Proceed so close() actually unmaps. Stop left Exclusive overlay layers
         // mapped on every workspace after a pick.
         window.connect_close_request(|_| {
@@ -333,7 +479,13 @@ pub fn pick(still: Shot, snap: bool, on_pick: impl FnOnce(Option<Rect>) + 'stati
     if let Some(ms) = std::env::var("CAPTURE_TEST_PICK_MS").ok().and_then(|v| v.parse().ok())
         && let Some((_, layout)) = self::outputs()?.into_iter().next()
     {
-        glib::timeout_add_local_once(std::time::Duration::from_millis(ms), move || finish(Some(layout)));
+        glib::timeout_add_local_once(std::time::Duration::from_millis(ms), move || {
+            let lit = SESSION.with(|s| s.borrow().as_ref().and_then(|s| s.borrow().hinted.clone()));
+            match lit {
+                Some(t) => pick_now(t.rect, (t.class, t.title)),
+                None => pick_now(layout, (String::new(), String::new())),
+            }
+        });
     }
     Ok(())
 }
@@ -342,6 +494,96 @@ pub fn pick(still: Shot, snap: bool, on_pick: impl FnOnce(Option<Rect>) + 'stati
 /// (a virtual monitor for layout checks), without the keyboard.
 fn test_monitor() -> Option<String> {
     if cfg!(debug_assertions) { std::env::var("CAPTURE_TEST_MONITOR").ok() } else { None }
+}
+
+/// Debug builds: `CAPTURE_TEST_POINTER=x,y` (from the test monitor's corner) stands in
+/// for the pointer, which stays on the real screen.
+fn test_pointer() -> Option<(i32, i32)> {
+    let v = if cfg!(debug_assertions) { std::env::var("CAPTURE_TEST_POINTER").ok()? } else { return None };
+    let (x, y) = v.split_once(',')?;
+    let mon = select::monitor_named(&test_monitor()?).ok()??.geometry;
+    Some((mon.x + x.trim().parse::<i32>().ok()?, mon.y + y.trim().parse::<i32>().ok()?))
+}
+
+/// The capture bar: Smart / Window / Screen, three one-shot toggles, and the hint.
+fn build_bar(session: &Rc<RefCell<Session>>) -> (gtk::Box, Bar) {
+    let bar = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    bar.add_css_class("capture-bar");
+    bar.set_halign(gtk::Align::Center);
+    bar.set_valign(gtk::Align::End);
+    bar.set_margin_bottom(22);
+
+    let seg = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    seg.add_css_class("segmented");
+    let mode = session.borrow().mode;
+    let mut modes = Vec::new();
+    let mut first: Option<gtk::ToggleButton> = None;
+    for (m, icon, label, tip) in [
+        (Mode::Smart, "capture-mode-smart-symbolic", "Smart", "Smart: drag a region, click a window, or click empty space (1)"),
+        (Mode::Window, "capture-mode-window-symbolic", "Window", "Window: click one (2)"),
+        (Mode::Screen, "capture-mode-screen-symbolic", "Screen", "Screen: the whole monitor (3)"),
+    ] {
+        let content = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        content.append(&gtk::Image::from_icon_name(icon));
+        content.append(&gtk::Label::new(Some(label)));
+        let b = gtk::ToggleButton::new();
+        b.set_child(Some(&content));
+        b.add_css_class("segment");
+        b.set_tooltip_text(Some(tip));
+        b.set_focus_on_click(false);
+        b.set_can_focus(false);
+        if let Some(f) = &first {
+            b.set_group(Some(f));
+        } else {
+            first = Some(b.clone());
+        }
+        b.set_active(m == mode);
+        let s = session.clone();
+        b.connect_toggled(move |b| {
+            if b.is_active() && s.borrow().mode != m {
+                s.borrow_mut().set_mode(m);
+                redraw();
+            }
+        });
+        seg.append(&b);
+        modes.push((m, b));
+    }
+    bar.append(&seg);
+    bar.append(&separator());
+
+    let toggle = |icon: &str, tip: &str, set: fn(&mut Extras, bool)| {
+        let b = gtk::ToggleButton::new();
+        b.set_icon_name(icon);
+        b.add_css_class("flat");
+        b.add_css_class("icon-button");
+        b.set_tooltip_text(Some(tip));
+        b.set_focus_on_click(false);
+        b.set_can_focus(false);
+        let s = session.clone();
+        b.connect_toggled(move |b| set(&mut s.borrow_mut().extras, b.is_active()));
+        bar.append(&b);
+        b
+    };
+    let edit = toggle("capture-edit-symbolic", "Edit afterwards (E)", |x, on| x.edit = on);
+    let text = toggle("capture-text-symbolic", "Copy its text instead (O)", |x, on| x.text = on);
+    let delay = toggle("capture-timer-symbolic", "Wait 3 seconds, then take it (D)", |x, on| x.delay = on);
+    bar.append(&separator());
+
+    let hint = gtk::Label::new(Some(mode.hint()));
+    hint.add_css_class("capture-bar-hint");
+    bar.append(&hint);
+    let esc = gtk::Label::new(Some("Esc"));
+    esc.add_css_class("capture-kbd");
+    esc.set_margin_end(4);
+    bar.append(&esc);
+    (bar, Bar { modes, edit, text, delay, hint })
+}
+
+fn separator() -> gtk::Separator {
+    let s = gtk::Separator::new(gtk::Orientation::Vertical);
+    s.add_css_class("capture-bar-sep");
+    s.set_valign(gtk::Align::Center);
+    s
 }
 
 /// The pointer in layout coordinates (Hyprland's), if Hyprland can say.
@@ -399,6 +641,17 @@ fn focused_output() -> anyhow::Result<gdk::Monitor> {
         .or(outputs.first())
         .map(|(m, _)| m.clone())
         .ok_or_else(|| anyhow::anyhow!("no monitors"))
+}
+
+/// The monitor (and its layout rect) holding the middle of `area`, else the focused one.
+pub fn output_for(area: Rect) -> anyhow::Result<(gdk::Monitor, Rect)> {
+    let outputs = outputs()?;
+    let (cx, cy) = (area.x + area.w / 2, area.y + area.h / 2);
+    if let Some(found) = outputs.iter().find(|(_, r)| r.contains(cx, cy)) {
+        return Ok(found.clone());
+    }
+    let focused = focused_output()?;
+    outputs.into_iter().find(|(m, _)| *m == focused).ok_or_else(|| anyhow::anyhow!("no monitors"))
 }
 
 thread_local! {
@@ -516,13 +769,11 @@ fn wire_pointer(canvas: &gtk::DrawingArea, session: Rc<RefCell<Session>>, layout
         let pt = layout_point(layout, c.width() as f64, c.height() as f64, x, y);
         let mut sess = s.borrow_mut();
         sess.cursor = pt;
-        sess.hinted = select::snap_rect_at(pt, &sess.candidates);
+        sess.hinted = sess.target_at(pt);
         if sess.dragging
             && let Some(origin) = sess.origin
         {
             sess.current = Some(drag_rect(origin, pt));
-        } else if sess.snap {
-            sess.current = sess.hinted;
         }
         drop(sess);
         redraw();
@@ -536,11 +787,14 @@ fn wire_pointer(canvas: &gtk::DrawingArea, session: Rc<RefCell<Session>>, layout
     drag.connect_drag_begin(move |_, x, y| {
         let pt = layout_point(layout, c.width() as f64, c.height() as f64, x, y);
         let mut sess = s.borrow_mut();
-        sess.dragging = true;
-        sess.origin = Some(pt);
         sess.cursor = pt;
-        sess.current = Some(drag_rect(pt, pt));
-        sess.hinted = select::snap_rect_at(pt, &sess.candidates);
+        sess.hinted = sess.target_at(pt);
+        // Only Smart draws regions; Window and Screen take what is lit on release.
+        if sess.mode == Mode::Smart {
+            sess.dragging = true;
+            sess.origin = Some(pt);
+            sess.current = Some(drag_rect(pt, pt));
+        }
         drop(sess);
         redraw();
     });
@@ -551,8 +805,12 @@ fn wire_pointer(canvas: &gtk::DrawingArea, session: Rc<RefCell<Session>>, layout
         let pt = layout_point(layout, c.width() as f64, c.height() as f64, x + dx, y + dy);
         let mut sess = s.borrow_mut();
         sess.cursor = pt;
-        if let Some(origin) = sess.origin {
+        if sess.dragging
+            && let Some(origin) = sess.origin
+        {
             sess.current = Some(drag_rect(origin, pt));
+        } else {
+            sess.hinted = sess.target_at(pt);
         }
         drop(sess);
         redraw();
@@ -564,8 +822,8 @@ fn wire_pointer(canvas: &gtk::DrawingArea, session: Rc<RefCell<Session>>, layout
             sess.dragging = false;
             resolve_release(&sess)
         };
-        if let Some(rect) = picked {
-            finish(Some(rect));
+        if let Some((rect, app)) = picked {
+            pick_now(rect, app);
         } else {
             s.borrow_mut().current = None;
             redraw();
@@ -579,31 +837,48 @@ fn wire_keys(window: &gtk::Window, session: Rc<RefCell<Session>>) {
     keys.set_propagation_phase(gtk::PropagationPhase::Capture);
     keys.connect_key_pressed(move |_, key, _, mods| {
         let shift = mods.contains(gdk::ModifierType::SHIFT_MASK);
-        match key {
-            gdk::Key::Escape => {
-                finish(None);
-                return glib::Propagation::Stop;
+        let mode = |m: Mode| {
+            let button = {
+                let mut s = session.borrow_mut();
+                s.set_mode(m);
+                s.mode_button(m)
+            };
+            if let Some(b) = button {
+                b.set_active(true);
             }
+            redraw();
+        };
+        let flip = |which: fn(&Bar) -> &gtk::ToggleButton| {
+            let b = session.borrow().bar.as_ref().map(|bar| which(bar).clone());
+            if let Some(b) = b {
+                b.set_active(!b.is_active());
+            }
+        };
+        match key {
+            gdk::Key::Escape => finish(None),
             gdk::Key::Return | gdk::Key::KP_Enter => {
                 let picked = {
                     let sess = session.borrow();
-                    sess.current.or(sess.hinted)
+                    match (sess.current, &sess.hinted) {
+                        (Some(r), _) if !r.is_empty() => Some((r, sess.window_under(r))),
+                        (_, Some(t)) if !t.rect.is_empty() => Some((t.rect, (t.class.clone(), t.title.clone()))),
+                        _ => None,
+                    }
                 };
-                if let Some(rect) = picked.filter(|r| !r.is_empty()) {
-                    finish(Some(rect));
+                if let Some((rect, app)) = picked {
+                    pick_now(rect, app);
                 }
-                return glib::Propagation::Stop;
             }
             gdk::Key::space => {
-                let mut sess = session.borrow_mut();
-                sess.snap = !sess.snap;
-                if sess.snap && sess.current.is_none() {
-                    sess.current = sess.hinted;
-                }
-                drop(sess);
-                redraw();
-                return glib::Propagation::Stop;
+                let next = if session.borrow().mode == Mode::Window { Mode::Smart } else { Mode::Window };
+                mode(next);
             }
+            gdk::Key::_1 | gdk::Key::KP_1 => mode(Mode::Smart),
+            gdk::Key::_2 | gdk::Key::KP_2 => mode(Mode::Window),
+            gdk::Key::_3 | gdk::Key::KP_3 => mode(Mode::Screen),
+            gdk::Key::e | gdk::Key::E => flip(|b| &b.edit),
+            gdk::Key::o | gdk::Key::O => flip(|b| &b.text),
+            gdk::Key::d | gdk::Key::D => flip(|b| &b.delay),
             gdk::Key::Left | gdk::Key::Right | gdk::Key::Up | gdk::Key::Down => {
                 let (dx, dy) = match key {
                     gdk::Key::Left => (-1, 0),
@@ -614,7 +889,7 @@ fn wire_keys(window: &gtk::Window, session: Rc<RefCell<Session>>) {
                 };
                 let mut sess = session.borrow_mut();
                 if sess.current.is_none() {
-                    sess.current = sess.hinted;
+                    sess.current = sess.hinted.as_ref().map(|t| t.rect);
                 }
                 if let Some(r) = sess.current {
                     let bounds = sess.still.area;
@@ -622,24 +897,46 @@ fn wire_keys(window: &gtk::Window, session: Rc<RefCell<Session>>) {
                 }
                 drop(sess);
                 redraw();
-                return glib::Propagation::Stop;
             }
-            _ => {}
+            _ => return glib::Propagation::Proceed,
         }
-        glib::Propagation::Proceed
+        glib::Propagation::Stop
     });
     window.add_controller(keys);
 }
 
-fn resolve_release(sess: &Session) -> Option<Rect> {
-    let current = sess.current?;
-    if is_click(current) {
-        return sess.hinted.filter(|r| !r.is_empty());
+/// A drag in Smart mode is the region; a click (or any release in the other modes)
+/// takes what is lit.
+fn resolve_release(sess: &Session) -> Option<(Rect, (String, String))> {
+    if let Some(current) = sess.current
+        && !is_click(current)
+        && !current.is_empty()
+    {
+        return Some((current, sess.window_under(current)));
     }
-    if current.is_empty() { None } else { Some(current) }
+    let lit = sess.hinted.as_ref()?;
+    if lit.rect.is_empty() {
+        return None;
+    }
+    Some((lit.rect, (lit.class.clone(), lit.title.clone())))
 }
 
-fn finish(picked: Option<Rect>) {
+/// The region overlay is on screen.
+pub fn is_open() -> bool {
+    SESSION.with(|s| s.borrow().is_some())
+}
+
+/// Close the overlay as Esc would.
+pub fn dismiss() {
+    finish(None);
+}
+
+fn pick_now(rect: Rect, (app, title): (String, String)) {
+    let extras = SESSION.with(|s| s.borrow().as_ref().map(|s| s.borrow().extras)).unwrap_or_default();
+    finish(Some(Picked { rect, app, title, extras }));
+}
+
+fn finish(picked: Option<Picked>) {
     if DISMISSING.get() {
         return;
     }
@@ -652,6 +949,7 @@ fn finish(picked: Option<Rect>) {
     let windows = std::mem::take(&mut sess.windows);
     let canvases = std::mem::take(&mut sess.canvases);
     let cb = sess.on_pick.take();
+    sess.bar = None;
     drop(sess);
     drop(canvases);
     dismiss_windows(windows);
@@ -690,13 +988,13 @@ fn draw(sess: &Session, cr: &Context, ww: f64, wh: f64, layout: Rect) {
     }
     paint_still(cr, &sess.surface, &sess.still, layout, ww, wh);
 
-    let veil = token("veil").or_else(|| token("theme_bg"));
-    if let Some(c) = veil {
+    if let Some(c) = token("veil") {
         set_rgba(cr, c, None);
         let _ = cr.paint();
     }
 
-    let shown = sess.current.filter(|r| !is_click(*r)).or(sess.hinted);
+    let dragged = sess.current.filter(|r| !is_click(*r));
+    let shown = dragged.or(sess.hinted.as_ref().map(|t| t.rect));
     if let Some(r) = shown
         && let Some(part) = intersection(r, layout)
     {
@@ -705,24 +1003,33 @@ fn draw(sess: &Session, cr: &Context, ww: f64, wh: f64, layout: Rect) {
         cr.clip();
         paint_still(cr, &sess.surface, &sess.still, layout, ww, wh);
         cr.reset_clip();
-        if let Some(fill) = token("nav_active") {
-            set_rgba(cr, fill, Some(0.35));
-            cr.rectangle(x, y, w, h);
-            let _ = cr.fill();
-        }
         if let Some(stroke) = token("theme_accent") {
             set_rgba(cr, stroke, None);
-            cr.set_line_width(1.0);
-            cr.rectangle(x + 0.5, y + 0.5, (w - 1.0).max(0.0), (h - 1.0).max(0.0));
+            cr.set_line_width(1.5);
+            cr.rectangle(x + 0.75, y + 0.75, (w - 1.5).max(0.0), (h - 1.5).max(0.0));
             let _ = cr.stroke();
-        }
-        if sess.current.filter(|c| !is_click(*c)).is_some() {
-            paint_chip(cr, r, x, y, w, ww, wh);
         }
     }
 
     if layout.contains(sess.cursor.0, sess.cursor.1) {
-        paint_magnifier(sess, cr, layout, ww, wh);
+        let (px, py) = widget_point(layout, ww, wh, sess.cursor);
+        let app = match (dragged, &sess.hinted) {
+            (None, Some(t)) if t.window => app_name(&t.class),
+            (None, Some(_)) => "Screen".to_string(),
+            _ => String::new(),
+        };
+        let size = shown.map(|r| ((r.w as f64 * sess.still.scale).round() as i64, (r.h as f64 * sess.still.scale).round() as i64));
+        paint_readouts(sess, cr, layout, ww, wh, (px, py), size, &app);
+    }
+}
+
+/// A class as a name for the chip: `org.mozilla.firefox` → `Firefox`.
+fn app_name(class: &str) -> String {
+    let last = class.rsplit('.').next().unwrap_or(class);
+    let mut chars = last.chars();
+    match chars.next() {
+        Some(c) => c.to_uppercase().chain(chars).collect(),
+        None => String::new(),
     }
 }
 
@@ -741,35 +1048,97 @@ fn paint_still(cr: &Context, surface: &ImageSurface, still: &Shot, mon: Rect, ww
     cr.restore().ok();
 }
 
-fn paint_chip(cr: &Context, r: Rect, x: f64, y: f64, w: f64, ww: f64, wh: f64) {
-    let label = format!("{}×{}  {},{}", r.w, r.h, r.x, r.y);
-    cr.select_font_face("Inter", cairo::FontSlant::Normal, cairo::FontWeight::Normal);
+/// Beside the pointer: a chip with the size (in saved pixels) and the app, then the
+/// magnifier and the pointer's position under it. Flips left or up near an edge.
+#[allow(clippy::too_many_arguments)]
+fn paint_readouts(sess: &Session, cr: &Context, layout: Rect, ww: f64, wh: f64, at: (f64, f64), size: Option<(i64, i64)>, app: &str) {
+    const GAP: f64 = 22.0;
+    cr.select_font_face("Inter", cairo::FontSlant::Normal, cairo::FontWeight::Bold);
     cr.set_font_size(12.0);
-    let ext = cr.text_extents(&label).unwrap_or_else(|_| cairo::TextExtents::new(0.0, 0.0, 0.0, 0.0, 0.0, 0.0));
-    let pad_x = 8.0;
-    let pad_y = 4.0;
-    let cw = ext.width() + pad_x * 2.0;
-    let ch = ext.height() + pad_y * 2.0;
-    let mut cx = x + (w - cw) / 2.0;
-    let mut cy = y - ch - 8.0;
-    if cy < 8.0 {
-        cy = y + 8.0;
+    let size_text = size.map(|(w, h)| format!("{w} × {h}")).unwrap_or_default();
+    let ext = |cr: &Context, t: &str| cr.text_extents(t).map(|e| (e.x_advance(), e.height(), e.y_bearing())).unwrap_or((0.0, 0.0, 0.0));
+    let (sw, _, _) = ext(cr, &size_text);
+    cr.select_font_face("Inter", cairo::FontSlant::Normal, cairo::FontWeight::Normal);
+    let (aw, _, _) = ext(cr, app);
+    let (pad_x, chip_h) = (9.0, 24.0);
+    let gap_between = if size_text.is_empty() || app.is_empty() { 0.0 } else { 8.0 };
+    let chip_w = if size_text.is_empty() && app.is_empty() { 0.0 } else { pad_x * 2.0 + sw + gap_between + aw };
+    let block_w = chip_w.max(MAG_SIZE);
+    let block_h = chip_h + 8.0 + MAG_SIZE + 22.0;
+    let mut x = at.0 + GAP;
+    let mut y = at.1 + GAP;
+    if x + block_w > ww - 8.0 {
+        x = at.0 - GAP - block_w;
     }
-    cx = cx.clamp(8.0, (ww - cw - 8.0).max(8.0));
-    cy = cy.clamp(8.0, (wh - ch - 8.0).max(8.0));
+    if y + block_h > wh - 8.0 {
+        y = at.1 - GAP - block_h;
+    }
+    x = x.clamp(8.0, (ww - block_w - 8.0).max(8.0));
+    y = y.clamp(8.0, (wh - block_h - 8.0).max(8.0));
+
+    if chip_w > 0.0 {
+        if let Some(bg) = token("surface") {
+            set_rgba(cr, bg, None);
+            rounded(cr, x, y, chip_w, chip_h, 7.0);
+            let _ = cr.fill();
+        }
+        let baseline = y + chip_h / 2.0 + 4.0;
+        if let Some(fg) = token("theme_text") {
+            set_rgba(cr, fg, None);
+            cr.select_font_face("Inter", cairo::FontSlant::Normal, cairo::FontWeight::Bold);
+            cr.move_to(x + pad_x, baseline);
+            let _ = cr.show_text(&size_text);
+        }
+        if let Some(dim) = token("dim_text") {
+            set_rgba(cr, dim, None);
+            cr.select_font_face("Inter", cairo::FontSlant::Normal, cairo::FontWeight::Normal);
+            cr.move_to(x + pad_x + sw + gap_between, baseline);
+            let _ = cr.show_text(app);
+        }
+    }
+
+    let (mx, my) = (x, y + chip_h + 8.0);
+    cr.save().ok();
+    rounded(cr, mx, my, MAG_SIZE, MAG_SIZE, 11.0);
+    cr.clip();
     if let Some(bg) = token("theme_bg") {
         set_rgba(cr, bg, None);
-        rounded(cr, cx, cy, cw, ch, 7.0);
-        let _ = cr.fill();
+        let _ = cr.paint();
     }
-    if let Some(fg) = token("theme_text") {
-        set_rgba(cr, fg, None);
-        cr.move_to(cx + pad_x - ext.x_bearing(), cy + pad_y - ext.y_bearing());
-        let _ = cr.show_text(&label);
+    let scale = sess.still.scale.max(0.0001);
+    let img_x = (sess.cursor.0 - sess.still.area.x) as f64 * scale;
+    let img_y = (sess.cursor.1 - sess.still.area.y) as f64 * scale;
+    cr.translate(mx + MAG_SIZE / 2.0, my + MAG_SIZE / 2.0);
+    cr.scale(MAG_ZOOM, MAG_ZOOM);
+    if cr.set_source_surface(&sess.surface, -img_x, -img_y).is_ok() {
+        cr.source().set_filter(cairo::Filter::Nearest);
+        let _ = cr.paint();
+    }
+    cr.restore().ok();
+    if let Some(border) = token("theme_border") {
+        set_rgba(cr, border, None);
+        cr.set_line_width(1.0);
+        rounded(cr, mx + 0.5, my + 0.5, MAG_SIZE - 1.0, MAG_SIZE - 1.0, 11.0);
+        let _ = cr.stroke();
+    }
+    if let Some(accent) = token("theme_accent") {
+        set_rgba(cr, accent, None);
+        cr.set_line_width(1.5);
+        let px = MAG_ZOOM;
+        cr.rectangle(mx + MAG_SIZE / 2.0 - 0.75, my + MAG_SIZE / 2.0 - 0.75, px + 1.5, px + 1.5);
+        let _ = cr.stroke();
+    }
+    if let Some(dim) = token("dim_text") {
+        set_rgba(cr, dim, None);
+        cr.select_font_face("Inter", cairo::FontSlant::Normal, cairo::FontWeight::Normal);
+        cr.set_font_size(11.5);
+        let rel = (sess.cursor.0 - layout.x, sess.cursor.1 - layout.y);
+        cr.move_to(mx + 2.0, my + MAG_SIZE + 16.0);
+        let _ = cr.show_text(&format!("X {} · Y {}", rel.0, rel.1));
     }
 }
 
-/// A rounded rectangle path (the 2.0 small radius).
+/// A rounded rectangle path.
 fn rounded(cr: &Context, x: f64, y: f64, w: f64, h: f64, r: f64) {
     let r = r.min(w / 2.0).min(h / 2.0);
     let pi = std::f64::consts::PI;
@@ -781,48 +1150,6 @@ fn rounded(cr: &Context, x: f64, y: f64, w: f64, h: f64, r: f64) {
     cr.close_path();
 }
 
-fn paint_magnifier(sess: &Session, cr: &Context, layout: Rect, ww: f64, wh: f64) {
-    let (wx, wy) = widget_point(layout, ww, wh, sess.cursor);
-    let mut mx = wx + 24.0;
-    let mut my = wy + 24.0;
-    if mx + MAG_SIZE > ww - 8.0 {
-        mx = wx - MAG_SIZE - 24.0;
-    }
-    if my + MAG_SIZE > wh - 8.0 {
-        my = wy - MAG_SIZE - 24.0;
-    }
-    mx = mx.clamp(8.0, (ww - MAG_SIZE - 8.0).max(8.0));
-    my = my.clamp(8.0, (wh - MAG_SIZE - 8.0).max(8.0));
-
-    cr.save().ok();
-    cr.rectangle(mx, my, MAG_SIZE, MAG_SIZE);
-    cr.clip();
-    let scale = sess.still.scale.max(0.0001);
-    let img_x = (sess.cursor.0 - sess.still.area.x) as f64 * scale;
-    let img_y = (sess.cursor.1 - sess.still.area.y) as f64 * scale;
-    cr.translate(mx + MAG_SIZE / 2.0, my + MAG_SIZE / 2.0);
-    cr.scale(MAG_ZOOM, MAG_ZOOM);
-    if cr.set_source_surface(&sess.surface, -img_x, -img_y).is_ok() {
-        cr.source().set_filter(cairo::Filter::Nearest);
-        let _ = cr.paint();
-    }
-    cr.restore().ok();
-
-    if let Some(stroke) = token("theme_accent") {
-        set_rgba(cr, stroke, None);
-        cr.set_line_width(1.0);
-        cr.rectangle(mx + 0.5, my + 0.5, MAG_SIZE - 1.0, MAG_SIZE - 1.0);
-        let _ = cr.stroke();
-        let cx = mx + MAG_SIZE / 2.0;
-        let cy = my + MAG_SIZE / 2.0;
-        cr.move_to(cx, my + 8.0);
-        cr.line_to(cx, my + MAG_SIZE - 8.0);
-        cr.move_to(mx + 8.0, cy);
-        cr.line_to(mx + MAG_SIZE - 8.0, cy);
-        let _ = cr.stroke();
-    }
-}
-
 fn token(name: &str) -> Option<gdk::RGBA> {
     let p = crate::theme::palette();
     match name {
@@ -830,10 +1157,11 @@ fn token(name: &str) -> Option<gdk::RGBA> {
         "theme_bg" => parse_hex(&p.bg),
         "theme_text" => parse_hex(&p.text),
         "theme_border" => parse_hex(&p.border),
-        "nav_active" => Some(mix(parse_hex(&p.bg)?, parse_hex(&p.accent)?, 0.18)),
+        "surface" => parse_hex(&p.surface),
+        "dim_text" => parse_hex(&p.dim_text),
         "veil" => {
-            let mut c = mix(parse_hex(&p.bg)?, parse_hex(&p.shadow)?, 0.45);
-            c.set_alpha(0.82);
+            let mut c = mix(parse_hex(&p.bg)?, parse_hex(&p.shadow)?, 0.5);
+            c.set_alpha(0.6);
             Some(c)
         }
         _ => None,

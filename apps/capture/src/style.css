@@ -184,6 +184,144 @@ window.capture-pill {
   background: transparent;
 }
 
+window.capture-window.capture-overlay,
+window.capture-window.capture-card {
+  background: transparent;
+}
+
+/* ---------- Capture bar (on the overlay) ---------- */
+
+/* Raised over the dimmed still: a step lighter than the window, the segment track a
+   touch darker than the bar, the chosen segment lighter again. Built from the window
+   and text colours, since some themes' popover colour is darker than the window. */
+.capture-bar {
+  background: mix(@theme_bg, @theme_text, 0.06);
+  color: @theme_text;
+  border-radius: var(--nyx-radius-dialog);
+  padding: 8px;
+  box-shadow: 0 12px 32px alpha(black, 0.55), 0 2px 6px alpha(black, 0.4);
+}
+
+window.capture-window .capture-bar .segmented {
+  background: mix(@theme_bg, @theme_text, 0.03);
+  border-radius: var(--nyx-radius-small);
+  padding: 2px;
+}
+
+window.capture-window .capture-bar .segmented button.segment {
+  min-height: 28px;
+  padding: 0 11px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  background: transparent;
+  color: mix(@theme_text, @theme_bg, 0.22);
+}
+
+window.capture-window .capture-bar .segmented button.segment + button.segment {
+  margin-left: 2px;
+}
+
+window.capture-window .capture-bar .segmented button.segment:checked {
+  background: mix(@theme_bg, @theme_text, 0.09);
+  color: @theme_text;
+  box-shadow: 0 1px 3px alpha(black, 0.35);
+}
+
+window.capture-window .capture-bar .segmented button.segment:checked image {
+  color: @theme_accent;
+}
+
+.capture-bar image {
+  -gtk-icon-size: 17px;
+}
+
+window.capture-window .capture-bar button.icon-button {
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
+  border-radius: var(--nyx-radius-small);
+  color: mix(@theme_text, @theme_bg, 0.22);
+}
+
+window.capture-window .capture-bar button.icon-button:hover {
+  background: alpha(@theme_text, 0.07);
+  color: @theme_text;
+}
+
+window.capture-window .capture-bar button.icon-button:checked {
+  background: alpha(@theme_accent, 0.16);
+  color: @theme_accent;
+}
+
+.capture-bar-sep {
+  min-width: 1px;
+  min-height: 20px;
+  margin: 0 4px;
+  background: mix(@theme_bg, @theme_text, 0.16);
+}
+
+.capture-bar-hint {
+  color: mix(@theme_text, @theme_bg, 0.45);
+  font-size: 11.5px;
+  margin: 0 4px 0 6px;
+}
+
+.capture-kbd {
+  color: mix(@theme_text, @theme_bg, 0.22);
+  background: mix(@theme_bg, @theme_text, 0.03);
+  border-radius: 5px;
+  padding: 2px 6px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+/* ---------- Shot card ---------- */
+
+.shot-card {
+  background: @theme_popover;
+  color: @theme_text;
+  border-radius: var(--nyx-radius-dialog);
+  padding: 10px;
+  margin: 12px;
+  box-shadow: 0 8px 22px alpha(@theme_shadow, 0.55), 0 1px 4px alpha(@theme_shadow, 0.4);
+}
+
+.shot-thumb {
+  border-radius: var(--nyx-radius-card);
+  background: @theme_bg;
+  box-shadow: inset 0 0 0 1px alpha(@theme_text, 0.06);
+}
+
+.shot-badge {
+  background: alpha(@theme_bg, 0.85);
+  color: @theme_text;
+  border-radius: 6px;
+  padding: 3px 7px;
+  margin: 8px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.shot-badge image {
+  color: @theme_accent;
+}
+
+.shot-size {
+  color: @theme_text_tertiary;
+  font-size: 11.5px;
+  font-feature-settings: "tnum";
+}
+
+.shot-status {
+  color: @theme_dim_text;
+  font-size: 12px;
+}
+
+.shot-status.quiet {
+  color: @theme_text_tertiary;
+}
+
+
 .capture-countdown-card {
   background: @theme_popover;
   color: @theme_text;

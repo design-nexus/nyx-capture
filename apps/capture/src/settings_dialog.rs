@@ -9,7 +9,7 @@ use nyx_ui::settings_card::{self, About, Spec, Standard};
 pub use nyx_ui::settings_card::fit;
 
 const GROUPS: &[(&str, &str, &str)] = &[
-    ("Capture", "camera-photo-symbolic", "What happens after a shot"),
+    ("Capture", "camera-photo-symbolic", "Print key, shot card, save folder"),
     ("History", "document-open-recent-symbolic", "Keep, search, and forget captures"),
     ("OCR", "edit-find-symbolic", "Tesseract and RapidOCR"),
     ("Privacy", "channel-secure-symbolic", "Redaction and Nyx Assistant"),

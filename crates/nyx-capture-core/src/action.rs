@@ -17,6 +17,8 @@ pub enum After {
     Ocr,
     Edit,
     Pin,
+    /// Copy and save at once.
+    Quick,
 }
 
 #[derive(Debug, Clone)]
@@ -33,6 +35,8 @@ pub struct Action {
 pub enum Outcome {
     Copied,
     Saved(PathBuf),
+    /// Copied and saved to this path.
+    Quick(PathBuf),
     Text(String),
     Cancelled,
 }
@@ -76,6 +80,13 @@ pub fn finish(shot: &crate::capture::Shot, action: &Action) -> Result<Outcome> {
             crate::atomic_write(&path, &shot.png()?)?;
             Ok(Outcome::Saved(path))
         }
+        After::Quick => {
+            let png = shot.png()?;
+            clipboard::copy_png(&png)?;
+            let path = action.save_path.clone().unwrap_or_else(default_save_path);
+            crate::atomic_write(&path, &png)?;
+            Ok(Outcome::Quick(path))
+        }
         After::Ocr => {
             let result = recognize(&shot.image, action.ocr_mode, &action.ocr_langs)?;
             clipboard::copy_text(&result.text)?;
@@ -118,9 +129,46 @@ pub fn default_save_dir() -> PathBuf {
 }
 
 pub fn save_path_in(dir: &std::path::Path) -> PathBuf {
-    let _ = std::fs::create_dir_all(dir);
     let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-    dir.join(format!("capture-{stamp}.png"))
+    unique_png(dir, &format!("capture-{stamp}"))
+}
+
+/// `dir/stem.png`, or `stem-2.png`, `stem-3.png`… when that is taken. Creates `dir`.
+pub fn unique_png(dir: &std::path::Path, stem: &str) -> PathBuf {
+    let _ = std::fs::create_dir_all(dir);
+    let first = dir.join(format!("{stem}.png"));
+    if !first.exists() {
+        return first;
+    }
+    (2..).map(|n| dir.join(format!("{stem}-{n}.png"))).find(|p| !p.exists()).unwrap_or(first)
+}
+
+/// A file name from a pattern: `{date}`, `{time}` and `{app}` filled in. An empty app
+/// takes a separator next to it along, so `shot-{date}-{app}` gives `shot-2026-11-03`.
+pub fn file_stem(pattern: &str, date: &str, time: &str, app: &str) -> String {
+    let mut out = pattern.replace("{date}", date).replace("{time}", time);
+    if app.is_empty() {
+        for sep in ["-", "_", " ", "."] {
+            out = out.replace(&format!("{sep}{{app}}"), "").replace(&format!("{{app}}{sep}"), "");
+        }
+    }
+    let out = out.replace("{app}", app).replace('/', "-");
+    let out = out.trim_matches(|c: char| c == '-' || c == '_' || c.is_whitespace());
+    if out.is_empty() { "screenshot".into() } else { out.to_string() }
+}
+
+/// A window class as a short file-name word: `org.mozilla.firefox` → `firefox`.
+pub fn app_slug(class: &str) -> String {
+    let last = class.rsplit('.').next().unwrap_or(class).to_lowercase();
+    let mut slug = String::new();
+    for c in last.chars() {
+        if c.is_ascii_alphanumeric() {
+            slug.push(c);
+        } else if !slug.ends_with('-') {
+            slug.push('-');
+        }
+    }
+    slug.trim_matches('-').to_string()
 }
 
 pub fn parse_after(_copy: bool, save: bool, ocr: bool, pin: bool, edit: bool) -> Result<After> {
@@ -148,7 +196,7 @@ pub fn require_tools_for(mode: &CaptureMode, after: After, ocr_mode: OcrMode) ->
     if matches!(mode, CaptureMode::ActiveWindow) && !tools.hyprctl {
         bail!("Window capture needs hyprctl");
     }
-    if matches!(after, After::Copy | After::Ocr) && !tools.wl_copy {
+    if matches!(after, After::Copy | After::Ocr | After::Quick) && !tools.wl_copy {
         bail!("Copy needs wl-copy");
     }
     if matches!(after, After::Ocr) {
@@ -160,4 +208,37 @@ pub fn require_tools_for(mode: &CaptureMode, after: After, ocr_mode: OcrMode) ->
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn file_names_fill_in_the_pattern() {
+        let p = "screenshot-{date}_{time}-{app}";
+        assert_eq!(file_stem(p, "2026-11-03", "19-52-01", "firefox"), "screenshot-2026-11-03_19-52-01-firefox");
+        assert_eq!(file_stem(p, "2026-11-03", "19-52-01", ""), "screenshot-2026-11-03_19-52-01");
+        assert_eq!(file_stem("{app}_{date}", "2026-11-03", "x", ""), "2026-11-03");
+        assert_eq!(file_stem("{app}", "d", "t", ""), "screenshot");
+        assert_eq!(file_stem("a/b-{date}", "d", "t", ""), "a-b-d");
+    }
+
+    #[test]
+    fn classes_become_short_words() {
+        assert_eq!(app_slug("org.mozilla.firefox"), "firefox");
+        assert_eq!(app_slug("Alacritty"), "alacritty");
+        assert_eq!(app_slug("io.github.design_nexus.nyx.Files"), "files");
+        assert_eq!(app_slug("Google Chrome"), "google-chrome");
+        assert_eq!(app_slug(""), "");
+    }
+
+    #[test]
+    fn taken_names_get_a_number() {
+        let dir = std::env::temp_dir().join(format!("nyx-capture-names-{}", std::process::id()));
+        let first = unique_png(&dir, "shot");
+        std::fs::write(&first, b"x").unwrap();
+        assert_eq!(unique_png(&dir, "shot"), dir.join("shot-2.png"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

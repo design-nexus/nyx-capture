@@ -524,13 +524,7 @@ impl Editor {
 
     fn save_flat(&self) {
         let Some((original, state)) = self.0.session.borrow().as_ref().map(|s| (s.original.clone(), s.history.current().clone())) else { return };
-        // The Save folder from Settings, or Pictures/Screenshots.
-        let dir = prefs::get().save_dir;
-        let path = if dir.is_empty() {
-            nyx_capture_core::action::default_save_path()
-        } else {
-            nyx_capture_core::action::save_path_in(std::path::Path::new(&dir))
-        };
+        let path = crate::naming::next_path("");
         let me = self.clone();
         crate::cmd::background(
             move || {

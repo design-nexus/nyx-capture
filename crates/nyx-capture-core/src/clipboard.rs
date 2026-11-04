@@ -14,13 +14,27 @@ pub fn copy_text(text: &str) -> Result<()> {
 
 fn pipe(args: &[&str], bytes: &[u8]) -> Result<()> {
     let (program, rest) = args.split_first().context("empty command")?;
-    let mut child = Command::new(program).args(rest).stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::piped()).spawn().with_context(|| format!("{program} isn't available"))?;
+    // wl-copy forks a process that serves the clipboard and keeps any inherited pipe
+    // open until something else is copied, so nothing here may wait on its output.
+    let mut child = Command::new(program).args(rest).stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().with_context(|| format!("{program} isn't available"))?;
     if let Some(mut stdin) = child.stdin.take() {
         stdin.write_all(bytes).context("clipboard stdin")?;
     }
-    let out = child.wait_with_output().context("clipboard")?;
-    if !out.status.success() {
-        bail!("{} failed: {}", program, String::from_utf8_lossy(&out.stderr).trim());
+    let status = child.wait().context("clipboard")?;
+    if !status.success() {
+        bail!("{program} failed ({status})");
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_copier_that_stays_in_the_background_does_not_block() {
+        let started = std::time::Instant::now();
+        pipe(&["sh", "-c", "cat >/dev/null; sleep 5 & exit 0"], b"png").unwrap();
+        assert!(started.elapsed() < std::time::Duration::from_secs(2));
+    }
 }

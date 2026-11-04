@@ -21,28 +21,67 @@ fn capture_group(page: &Page) {
     let group = page.group("Capture");
     let prefs = prefs::get();
     let tools = Tools::probe();
-    let mut after = vec![("edit", "Edit"), ("save", "Save"), ("pin", "Pin")];
+    group.add(&widgets::segmented_row(
+        "Start with",
+        "What the capture bar has chosen when the Print key opens it.",
+        widgets::opts(&[("smart", "Smart"), ("window", "Window"), ("screen", "Screen")]),
+        &prefs.capture_start,
+        |v| prefs::update(|p| p.capture_start = v),
+    ));
+    let mut after = vec![("edit", "Edit"), ("pin", "Pin")];
     if tools.wl_copy {
-        after.insert(1, ("copy", "Copy"));
-    }
-    if tools.can_ocr() {
-        after.push(("ocr", "OCR"));
+        after.insert(0, ("copy", "Copy"));
+        after.insert(0, ("quick", "Copy and save"));
+    } else {
+        after.insert(0, ("save", "Save"));
     }
     group.add(&widgets::segmented_row(
         "After a screenshot",
-        "What to do once the region is chosen.",
+        "What happens once you've chosen.",
         widgets::opts(&after),
         &prefs.after_capture,
         |v| prefs::update(|p| p.after_capture = v),
     ));
+    let (row, _) = widgets::switch_row(
+        "Shot card",
+        "Show the shot in the corner with Edit, Copy and Keep.",
+        prefs.shot_card,
+        |on| prefs::update(|p| p.shot_card = on),
+    );
+    group.add(&row);
+    group.add(&widgets::segmented_row(
+        "Card stays",
+        "Pointing at the card always stops the clock.",
+        widgets::opts(&[("4", "4 s"), ("7", "7 s"), ("15", "15 s"), ("0", "Until closed")]),
+        &prefs.card_secs.to_string(),
+        |v| {
+            if let Ok(n) = v.parse() {
+                prefs::update(|p| p.card_secs = n);
+            }
+        },
+    ));
     let save_label = save_dir_label(&prefs.save_dir);
     let (row, _) = widgets::button_row(
         "Save folder",
-        "Where Save writes PNG files. Empty uses Pictures / Nyx Capture.",
+        "Where shots are saved. Read each time; no restart.",
         &save_label,
         |btn| choose_save_dir(btn.clone()),
     );
     group.add(&row);
+    let name = gtk::Entry::new();
+    name.set_text(&prefs.file_name);
+    name.set_width_chars(28);
+    name.set_placeholder_text(Some("screenshot-{date}_{time}-{app}"));
+    let save_name = |e: &gtk::Entry| {
+        let text = e.text().trim().to_string();
+        prefs::update(|p| p.file_name = text);
+    };
+    name.connect_activate(save_name);
+    let focus = gtk::EventControllerFocus::new();
+    let entry = name.clone();
+    focus.connect_leave(move |_| save_name(&entry));
+    name.add_controller(focus);
+    group.add(&widgets::row("File name", "{date}, {time} and {app} are filled in.", Some(name.upcast_ref())));
     let mut selector = vec![("auto", "Auto")];
     if crate::overlay::supported() {
         selector.push(("overlay", "Overlay"));
@@ -81,11 +120,7 @@ fn save_dir_label(dir: &str) -> String {
     if dir.is_empty() {
         return "Pictures / Nyx Capture".into();
     }
-    Path::new(dir)
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| dir.to_string())
+    crate::paths::pretty(Path::new(dir))
 }
 
 fn choose_save_dir(btn: gtk::Button) {

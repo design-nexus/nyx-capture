@@ -36,6 +36,17 @@ fn install_icons() {
         ("capture-tool-ellipse-symbolic.svg", include_str!("../data/icons/capture-tool-ellipse-symbolic.svg")),
         ("capture-tool-highlighter-symbolic.svg", include_str!("../data/icons/capture-tool-highlighter-symbolic.svg")),
         ("capture-tool-callout-symbolic.svg", include_str!("../data/icons/capture-tool-callout-symbolic.svg")),
+        ("capture-mode-smart-symbolic.svg", include_str!("../data/icons/capture-mode-smart-symbolic.svg")),
+        ("capture-mode-window-symbolic.svg", include_str!("../data/icons/capture-mode-window-symbolic.svg")),
+        ("capture-mode-screen-symbolic.svg", include_str!("../data/icons/capture-mode-screen-symbolic.svg")),
+        ("capture-edit-symbolic.svg", include_str!("../data/icons/capture-edit-symbolic.svg")),
+        ("capture-text-symbolic.svg", include_str!("../data/icons/capture-text-symbolic.svg")),
+        ("capture-timer-symbolic.svg", include_str!("../data/icons/capture-timer-symbolic.svg")),
+        ("capture-copy-symbolic.svg", include_str!("../data/icons/capture-copy-symbolic.svg")),
+        ("capture-pin-symbolic.svg", include_str!("../data/icons/capture-pin-symbolic.svg")),
+        ("capture-folder-symbolic.svg", include_str!("../data/icons/capture-folder-symbolic.svg")),
+        ("capture-close-symbolic.svg", include_str!("../data/icons/capture-close-symbolic.svg")),
+        ("capture-check-symbolic.svg", include_str!("../data/icons/capture-check-symbolic.svg")),
     ];
     let dir = crate::paths::cache_dir().join("icons");
     for (name, svg) in ICONS {

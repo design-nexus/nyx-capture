@@ -1,9 +1,11 @@
 //! Capture — screenshots, annotation, and OCR for Omarchy.
 
+mod card;
 mod cmd;
 mod control;
 mod editor;
 mod grid;
+mod naming;
 mod ocr_view;
 mod overlay;
 mod pin;
@@ -31,6 +33,8 @@ pub fn app_id() -> String {
 
 const USAGE: &str = "Usage: nyx-capture [OPTIONS]\n\
 \n\
+  --capture           the Print key: the capture bar, then what Settings → Capture\n\
+                      says (run again while choosing to close it)\n\
   --region            drag a region\n\
   --window            pick a window\n\
   --active-window     the focused window\n\
@@ -130,7 +134,7 @@ fn main() -> glib::ExitCode {
         }) {
             Ok(Outcome::Cancelled) => {}
             Ok(Outcome::Copied) => {}
-            Ok(Outcome::Saved(path)) => eprintln!("{}", path.display()),
+            Ok(Outcome::Saved(path) | Outcome::Quick(path)) => eprintln!("{}", path.display()),
             Ok(Outcome::Text(text)) => {
                 if !text.is_empty() {
                     eprintln!("{text}");
@@ -164,6 +168,10 @@ fn main() -> glib::ExitCode {
             && w.is_visible()
         {
             w.close();
+            return glib::ExitCode::SUCCESS;
+        }
+        if has("--capture") {
+            window::capture_from_key(app);
             return glib::ExitCode::SUCCESS;
         }
         if has("--scroll") {
@@ -262,7 +270,11 @@ fn cli_action(args: &[String]) -> Option<Action> {
     let edit = has_flag(args, "--edit");
     let copy = has_flag(args, "--copy") || (!save && !ocr && !pin && !edit);
     let after = action::parse_after(copy, save, ocr, pin, edit).ok()?;
-    let save_path = if save { flag_value(args, "--save").map(std::path::PathBuf::from) } else { None };
+    let save_path = if save {
+        Some(flag_value(args, "--save").map(std::path::PathBuf::from).unwrap_or_else(|| naming::next_path("")))
+    } else {
+        None
+    };
     let prefs = prefs::get();
     Some(Action {
         mode,
@@ -480,6 +492,8 @@ fn run_cli(action: &Action) -> anyhow::Result<(Outcome, Option<nyx_capture_core:
     if select && overlay::prefer() {
         match overlay::run_cli(&action) {
             Ok(outcome) => return Ok(outcome),
+            // A test copy on a virtual monitor never opens slurp on the real ones.
+            Err(err) if overlay::testing() => return Err(err),
             Err(err) => eprintln!("nyx-capture: overlay unavailable ({err}); using slurp"),
         }
     }

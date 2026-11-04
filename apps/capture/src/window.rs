@@ -12,7 +12,7 @@ use gtk::glib;
 use gtk::prelude::*;
 use nyx_capture_core::action::{self, Action, After};
 use nyx_capture_core::annot;
-use nyx_capture_core::capture::CaptureMode;
+use nyx_capture_core::capture::{CaptureBackend, CaptureMode};
 use nyx_capture_core::clipboard;
 use nyx_capture_core::ocr::{OcrMode, recognize};
 use nyx_capture_core::record::{self, Container, RecordRequest, Target};
@@ -619,6 +619,152 @@ pub fn capture_title() -> String {
     LAST_TITLE.with(|t| t.borrow().clone())
 }
 
+/// The Print key (`--capture`): the overlay with the capture bar, then what Settings →
+/// Capture says to do with the shot. Pressed again while choosing, it closes the overlay.
+pub fn capture_from_key(app: &gtk::Application) {
+    if crate::overlay::is_open() {
+        crate::overlay::dismiss();
+        return;
+    }
+    let hold = app.hold();
+    let win = window();
+    let shown = win.as_ref().is_some_and(|w| w.is_visible());
+    if let Some(w) = &win {
+        w.set_visible(false);
+    }
+    let cards = crate::card::hide_all();
+    let restore: Rc<dyn Fn()> = Rc::new(move || {
+        crate::card::unhide_all();
+        if shown && let Some(w) = &win {
+            w.present();
+        }
+    });
+    // The history window and the cards must be gone from the screen before the still.
+    let wait = if shown { 250 } else if cards { 120 } else { 0 };
+    glib::timeout_add_local_once(std::time::Duration::from_millis(wait), move || {
+        let still = match crate::overlay::freeze() {
+            Ok(still) => still,
+            Err(err) => {
+                crate::naming::log_error("capture", &err);
+                restore();
+                return;
+            }
+        };
+        let start = crate::overlay::Mode::parse(&prefs::get().capture_start);
+        let frozen = still.clone();
+        let on_cancel = restore.clone();
+        let picked = crate::overlay::pick_with_bar(still, start, move |picked| match picked {
+            Some(picked) => take_picked(frozen, picked, restore, hold),
+            None => restore(),
+        });
+        if let Err(err) = picked {
+            crate::naming::log_error("capture", &err);
+            on_cancel();
+        }
+    });
+}
+
+/// The shot itself: cropped from the still, or taken fresh after the 3 s wait.
+fn take_picked(still: nyx_capture_core::capture::Shot, picked: crate::overlay::Picked, restore: Rc<dyn Fn()>, hold: gio::ApplicationHoldGuard) {
+    let rect = picked.rect;
+    let delay = picked.extras.delay;
+    let deliver = move |result: anyhow::Result<nyx_capture_core::capture::Shot>| match result {
+        Ok(shot) => deliver_shot(shot, picked, restore, hold),
+        Err(err) => {
+            crate::naming::log_error("capture", &err);
+            restore();
+        }
+    };
+    if !delay {
+        crate::cmd::background(move || still.crop_layout(rect), deliver);
+        return;
+    }
+    let started = crate::overlay::countdown(3, move |go| {
+        if go {
+            crate::cmd::background(
+                move || nyx_capture_core::capture::Grim.capture(&nyx_capture_core::capture::CaptureRequest { mode: CaptureMode::Region(rect) }),
+                deliver,
+            );
+        }
+    });
+    if let Err(err) = started {
+        crate::naming::log_error("capture", &err);
+    }
+}
+
+/// What Settings → Capture (or the bar's Edit and Text) says to do with a shot.
+fn deliver_shot(shot: nyx_capture_core::capture::Shot, picked: crate::overlay::Picked, restore: Rc<dyn Fn()>, hold: gio::ApplicationHoldGuard) {
+    let title = if !picked.title.trim().is_empty() {
+        picked.title.trim().chars().take(120).collect()
+    } else if picked.app.is_empty() {
+        "Screen".to_string()
+    } else {
+        String::new()
+    };
+    LAST_TITLE.with(|t| *t.borrow_mut() = title.clone());
+    let after = if picked.extras.edit {
+        After::Edit
+    } else if picked.extras.text {
+        After::Ocr
+    } else {
+        after_from_prefs()
+    };
+    if after == After::Edit {
+        crate::card::unhide_all();
+        // The editor replaces the history window until it closes.
+        RESTORE_AFTER_EDIT.with(|r| *r.borrow_mut() = Some(restore));
+        crate::editor::open(shot);
+        drop(hold);
+        return;
+    }
+    restore();
+    remember(&shot);
+    if after == After::Pin {
+        crate::pin::open_shot(shot);
+        drop(hold);
+        return;
+    }
+    let path = matches!(after, After::Quick | After::Save | After::Ocr).then(|| crate::naming::next_path(&picked.app));
+    let p = prefs::get();
+    let (langs, mode) = (p.ocr_langs, OcrMode::parse(&p.ocr_mode));
+    let work_shot = shot.clone();
+    let work_path = path.clone();
+    crate::cmd::background(
+        move || -> anyhow::Result<crate::card::Done> {
+            let png = work_shot.png()?;
+            if let Some(path) = &work_path {
+                nyx_capture_core::atomic_write(path, &png)?;
+            }
+            Ok(match after {
+                After::Copy => {
+                    clipboard::copy_png(&png)?;
+                    crate::card::Done::Copied
+                }
+                After::Save => crate::card::Done::Saved,
+                After::Ocr => {
+                    let text = recognize(&work_shot.image, mode, &langs)?.text;
+                    clipboard::copy_text(&text)?;
+                    crate::card::Done::TextCopied
+                }
+                _ => {
+                    clipboard::copy_png(&png)?;
+                    crate::card::Done::CopiedSaved
+                }
+            })
+        },
+        move |result| {
+            match result {
+                Ok(done) => crate::card::show(shot, path, done),
+                Err(err) => {
+                    crate::naming::log_error("capture", &err);
+                    toast(&err.to_string());
+                }
+            }
+            drop(hold);
+        },
+    );
+}
+
 pub fn capture_with(mode: CaptureMode, after: After, delay: u32) {
     capture_with_path(mode, after, delay, None);
 }
@@ -713,18 +859,14 @@ fn after_from_prefs() -> After {
         "save" => After::Save,
         "ocr" => After::Ocr,
         "copy" => After::Copy,
+        "quick" => After::Quick,
         "pin" => After::Pin,
         _ => After::Edit,
     }
 }
 
 fn save_file() -> Option<PathBuf> {
-    let dir = prefs::get().save_dir;
-    if dir.is_empty() {
-        None
-    } else {
-        Some(action::save_path_in(std::path::Path::new(&dir)))
-    }
+    Some(crate::naming::next_path(""))
 }
 
 fn finish_shot(
@@ -739,6 +881,20 @@ fn finish_shot(
         After::Pin => {
             remember(&shot);
             crate::pin::open_shot(shot);
+        }
+        After::Quick => {
+            remember(&shot);
+            let card_shot = shot.clone();
+            crate::cmd::background(
+                move || {
+                    let action = Action { mode: CaptureMode::FullDesktop, after: After::Quick, delay: 0, save_path, ocr_langs: langs, ocr_mode, backend: String::new() };
+                    action::finish(&shot, &action)
+                },
+                move |result| match result {
+                    Ok(action::Outcome::Quick(path)) => crate::card::show(card_shot, Some(path), crate::card::Done::CopiedSaved),
+                    other => report_capture(other),
+                },
+            );
         }
         other => {
             remember(&shot);
@@ -1436,6 +1592,7 @@ fn report_capture(result: Result<action::Outcome, anyhow::Error>) {
         Ok(action::Outcome::Cancelled) => {}
         Ok(action::Outcome::Copied) => toast("Copied"),
         Ok(action::Outcome::Saved(path)) => toast(&format!("Saved {}", path.display())),
+        Ok(action::Outcome::Quick(path)) => toast(&format!("Copied and saved {}", path.display())),
         Ok(action::Outcome::Text(_)) => toast("Copied text"),
         Err(err) => toast(&err.to_string()),
     }

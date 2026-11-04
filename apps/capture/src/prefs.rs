@@ -14,6 +14,14 @@ pub struct Prefs {
     pub glow: bool,
     pub last_section: String,
     pub after_capture: String,
+    /// What the capture bar starts on: `smart`, `window` or `screen`.
+    pub capture_start: String,
+    /// Show the shot card after a copy-and-save capture.
+    pub shot_card: bool,
+    /// Seconds the card stays; 0 keeps it until closed.
+    pub card_secs: u32,
+    /// Saved file names: `{date}`, `{time}` and `{app}` are filled in.
+    pub file_name: String,
     pub save_dir: String,
     pub history: bool,
     pub retention_days: i64,
@@ -45,7 +53,11 @@ impl Default for Prefs {
             sidebar_collapsed: false,
             glow: true,
             last_section: "recent".into(),
-            after_capture: "edit".into(),
+            after_capture: "quick".into(),
+            capture_start: "smart".into(),
+            shot_card: true,
+            card_secs: 7,
+            file_name: "screenshot-{date}_{time}-{app}".into(),
             save_dir: String::new(),
             history: true,
             retention_days: 90,
