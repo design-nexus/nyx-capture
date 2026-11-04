@@ -53,6 +53,11 @@ impl Shot {
         })
     }
 
+    /// A shot made here (a stitched scroll), with `scale` image pixels per layout unit.
+    pub fn from_image(image: DynamicImage, area: Rect, scale: f64, backend: &str) -> Self {
+        Self { image, area, scale, output: None, backend: backend.into(), png: None }
+    }
+
     pub fn scale_of(image: &DynamicImage, area: Rect) -> f64 {
         if area.w <= 0 {
             1.0

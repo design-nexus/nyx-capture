@@ -47,6 +47,16 @@ fn install_icons() {
         ("capture-folder-symbolic.svg", include_str!("../data/icons/capture-folder-symbolic.svg")),
         ("capture-close-symbolic.svg", include_str!("../data/icons/capture-close-symbolic.svg")),
         ("capture-check-symbolic.svg", include_str!("../data/icons/capture-check-symbolic.svg")),
+        ("capture-mode-scroll-symbolic.svg", include_str!("../data/icons/capture-mode-scroll-symbolic.svg")),
+        ("capture-mode-record-symbolic.svg", include_str!("../data/icons/capture-mode-record-symbolic.svg")),
+        ("capture-speaker-symbolic.svg", include_str!("../data/icons/capture-speaker-symbolic.svg")),
+        ("capture-mic-symbolic.svg", include_str!("../data/icons/capture-mic-symbolic.svg")),
+        ("capture-pointer-symbolic.svg", include_str!("../data/icons/capture-pointer-symbolic.svg")),
+        ("capture-cam-symbolic.svg", include_str!("../data/icons/capture-cam-symbolic.svg")),
+        ("capture-pause-symbolic.svg", include_str!("../data/icons/capture-pause-symbolic.svg")),
+        ("capture-stop-symbolic.svg", include_str!("../data/icons/capture-stop-symbolic.svg")),
+        ("capture-trash-symbolic.svg", include_str!("../data/icons/capture-trash-symbolic.svg")),
+        ("capture-play-symbolic.svg", include_str!("../data/icons/capture-play-symbolic.svg")),
     ];
     let dir = crate::paths::cache_dir().join("icons");
     for (name, svg) in ICONS {

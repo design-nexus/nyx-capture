@@ -12,6 +12,11 @@ pub fn copy_text(text: &str) -> Result<()> {
     pipe(&["wl-copy", "--type", "text/plain;charset=utf-8"], text.as_bytes())
 }
 
+/// A file, as file managers and chat apps paste it.
+pub fn copy_uri(uri: &str) -> Result<()> {
+    pipe(&["wl-copy", "--type", "text/uri-list"], format!("{uri}\r\n").as_bytes())
+}
+
 fn pipe(args: &[&str], bytes: &[u8]) -> Result<()> {
     let (program, rest) = args.split_first().context("empty command")?;
     // wl-copy forks a process that serves the clipboard and keeps any inherited pipe

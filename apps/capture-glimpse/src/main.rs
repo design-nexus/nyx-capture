@@ -100,7 +100,7 @@ fn command_hit(query: &str) -> Option<Hit> {
     let (title, subtitle) = match token {
         "region" => ("Capture a region", "Drag a region on screen"),
         "window" => ("Capture a window", "Pick a window"),
-        "scroll" => ("Scrolling capture", "omasnap stitches a tall region"),
+        "scroll" => ("Scrolling capture", "Scroll a page; Capture stitches it into one tall shot"),
         _ => ("Capture the screen", "The focused monitor"),
     };
     Some(Hit { id: format!("cmd:{token}"), title: title.into(), subtitle: subtitle.into(), action: Action::Activate { token: token.into() } })

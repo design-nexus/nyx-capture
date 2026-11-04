@@ -372,6 +372,7 @@ pub fn stop() -> Result<Option<PathBuf>> {
     // A software encoder can take a while to write out the end of a long recording.
     let deadline = Instant::now() + Duration::from_secs(30);
     while Instant::now() < deadline && alive(session.pid) {
+        reap();
         std::thread::sleep(Duration::from_millis(100));
     }
     if alive(session.pid) {
@@ -739,7 +740,13 @@ fn signal(pid: u32, sig: &str) -> Result<()> {
     if status.success() { Ok(()) } else { bail!("kill {sig} {pid} failed") }
 }
 
+/// Running: not gone, and not a zombie (a recorder this process started, which has
+/// exited and only waits to be collected).
 fn alive(pid: u32) -> bool {
+    if let Ok(stat) = fs::read_to_string(format!("/proc/{pid}/stat")) {
+        // "pid (comm) S ...": the state follows the last ')'.
+        return stat.rsplit_once(')').and_then(|(_, rest)| rest.trim_start().chars().next()).is_some_and(|state| state != 'Z' && state != 'X');
+    }
     Command::new("kill").args(["-0", &pid.to_string()]).status().map(|s| s.success()).unwrap_or(false)
 }
 
@@ -875,6 +882,17 @@ mod tests {
     fn session_path_is_under_runtime() {
         let p = session_path();
         assert_eq!(p.file_name().unwrap(), "recording.json");
+    }
+
+    #[test]
+    fn an_exited_child_is_not_alive() {
+        let mut child = Command::new("true").spawn().unwrap();
+        let pid = child.id();
+        std::thread::sleep(Duration::from_millis(200));
+        // Exited but not yet collected: a zombie.
+        assert!(!alive(pid));
+        let _ = child.wait();
+        assert!(alive(std::process::id()));
     }
 
     #[test]

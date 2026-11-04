@@ -11,6 +11,8 @@ mod overlay;
 mod pin;
 mod paths;
 mod prefs;
+mod recording;
+mod scrolling;
 mod settings_dialog;
 mod settings_page;
 mod share;
@@ -33,8 +35,10 @@ pub fn app_id() -> String {
 
 const USAGE: &str = "Usage: nyx-capture [OPTIONS]\n\
 \n\
-  --capture           the Print key: the capture bar, then what Settings → Capture\n\
-                      says (run again while choosing to close it)\n\
+  --capture [MODE]    the capture bar (smart, window, screen, scroll or record; else\n\
+                      Settings → Capture's Start with). Run again to close it, finish\n\
+                      a scroll, or stop a recording\n\
+  --cancel            cancel the capture bar or a scroll capture in progress\n\
   --region            drag a region\n\
   --window            pick a window\n\
   --active-window     the focused window\n\
@@ -47,7 +51,7 @@ const USAGE: &str = "Usage: nyx-capture [OPTIONS]\n\
   --copy              put the image on the clipboard (default)\n\
   --save [PATH]       write a PNG\n\
   --edit              open the annotation editor\n\
-  --scroll            scrolling region via omasnap\n\
+  --scroll            the capture bar on Scroll: an area stitched as you scroll\n\
   --record            start a recording of the focused monitor\n\
   --record --region   pick a region, then record\n\
   --record --stop     stop the current recording\n\
@@ -98,18 +102,6 @@ fn main() -> glib::ExitCode {
         };
     }
 
-    if has_flag(&args, "--scroll") && !primary_running() && !has_flag(&args, "--edit") {
-        return match run_scroll() {
-            Ok(path) => {
-                eprintln!("{}", path.display());
-                glib::ExitCode::SUCCESS
-            }
-            Err(err) => {
-                eprintln!("{err}");
-                glib::ExitCode::FAILURE
-            }
-        };
-    }
 
     if has_flag(&args, "--record") && !primary_running() {
         match run_record(&args) {
@@ -170,14 +162,22 @@ fn main() -> glib::ExitCode {
             w.close();
             return glib::ExitCode::SUCCESS;
         }
+        // Esc while a scroll capture runs (Hyprland binds it only then): cancel it.
+        if has("--cancel") {
+            if overlay::is_open() {
+                overlay::dismiss();
+            } else if scrolling::is_active() {
+                scrolling::cancel();
+            }
+            return glib::ExitCode::SUCCESS;
+        }
         if has("--capture") {
-            window::capture_from_key(app);
+            // `--capture record` (or smart, window, screen, scroll) opens the bar on that mode.
+            let mode = value("--capture").filter(|v| !v.starts_with('-'));
+            window::capture_from_key(app, mode.as_deref());
             return glib::ExitCode::SUCCESS;
         }
         if has("--scroll") {
-            if window::window().is_none() {
-                window::present(app, None);
-            }
             window::start_scroll();
             return glib::ExitCode::SUCCESS;
         }
@@ -359,24 +359,6 @@ fn run_record(args: &[String]) -> anyhow::Result<()> {
             Err(err)
         }
     }
-}
-
-fn run_scroll() -> anyhow::Result<std::path::PathBuf> {
-    let dir = if prefs::get().history { paths::captures_dir() } else { nyx_capture_core::action::default_save_dir() };
-    let path = nyx_capture_core::scroll::capture(&dir)?;
-    if prefs::get().history {
-        let img = image::open(&path)?;
-        let db = nyx_capture_core::store::open(&paths::library_db())?;
-        let id = db.insert(&nyx_capture_core::store::NewCapture {
-            kind: nyx_capture_core::CaptureKind::Screenshot,
-            width: img.width() as i32,
-            height: img.height() as i32,
-            path: path.clone(),
-            source: "omasnap".into(),
-        })?;
-        let _ = db.thumb(&id, &path, &paths::thumb_file(&id), false);
-    }
-    Ok(path)
 }
 
 /// Put a hotkey's shot in history (with history on): the PNG, its thumbnail and title

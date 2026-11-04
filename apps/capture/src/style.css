@@ -179,8 +179,7 @@ window.capture-editor .editor-bar > menubutton > button:checked {
 /* ---------- Overlay, countdown, recording pill, pins ---------- */
 
 window.capture-overlay,
-window.capture-countdown,
-window.capture-pill {
+window.capture-countdown {
   background: transparent;
 }
 
@@ -275,6 +274,118 @@ window.capture-window .capture-bar button.icon-button:checked {
   font-weight: 500;
 }
 
+window.capture-window .capture-bar dropdown.capture-format,
+window.capture-window .capture-bar dropdown.capture-format > button {
+  min-width: 0;
+}
+
+window.capture-window .capture-bar dropdown.capture-format > button {
+  min-height: 32px;
+  padding: 0 6px 0 11px;
+  border-radius: var(--nyx-radius-small);
+  background: mix(@theme_bg, @theme_text, 0.03);
+  color: @theme_text;
+  font-size: 12.5px;
+  font-weight: 400;
+}
+
+/* ---------- Scrolling capture ---------- */
+
+.scroll-bar {
+  padding: 8px 8px 8px 14px;
+}
+
+.scroll-dot {
+  min-width: 8px;
+  min-height: 8px;
+  border-radius: 999px;
+  background: @theme_accent;
+  box-shadow: 0 0 0 3px alpha(@theme_accent, 0.18);
+}
+
+.scroll-count {
+  font-feature-settings: "tnum";
+}
+
+window.capture-window .capture-bar button.scroll-cancel {
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: var(--nyx-radius-small);
+  background: mix(@theme_bg, @theme_text, 0.03);
+  color: @theme_text;
+  font-weight: 500;
+}
+
+window.capture-window .capture-bar button.scroll-done {
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: var(--nyx-radius-small);
+}
+
+.scroll-strip {
+  padding: 8px;
+}
+
+.scroll-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: mix(@theme_text, @theme_bg, 0.45);
+  margin: 2px 2px 0;
+}
+
+.scroll-size {
+  color: mix(@theme_text, @theme_bg, 0.22);
+  font-size: 11.5px;
+  font-feature-settings: "tnum";
+  margin: 0 2px 2px;
+}
+
+/* ---------- Recording bar ---------- */
+
+window.capture-window.rec-frame {
+  background: @theme_danger;
+}
+
+.rec-bar {
+  padding: 8px 8px 8px 14px;
+}
+
+.rec-bar.tucked {
+  border-radius: 999px;
+  padding: 6px 12px 6px 10px;
+}
+
+.rec-dot {
+  min-width: 9px;
+  min-height: 9px;
+  border-radius: 999px;
+  margin-right: 4px;
+  background: @theme_danger;
+  box-shadow: 0 0 0 4px alpha(@theme_danger, 0.18);
+}
+
+.rec-dot.paused {
+  background: mix(@theme_text, @theme_bg, 0.45);
+  box-shadow: none;
+}
+
+.rec-time {
+  font-weight: 600;
+  font-feature-settings: "tnum";
+  min-width: 44px;
+}
+
+window.capture-window .capture-bar button.icon-button.rec-stop {
+  background: @theme_danger;
+  color: @theme_bg;
+}
+
+.rec-mini-stop {
+  color: mix(@theme_text, @theme_bg, 0.22);
+  -gtk-icon-size: 15px;
+}
+
 /* ---------- Shot card ---------- */
 
 .shot-card {
@@ -306,6 +417,19 @@ window.capture-window .capture-bar button.icon-button:checked {
   color: @theme_accent;
 }
 
+.shot-play {
+  min-width: 46px;
+  min-height: 46px;
+  border-radius: 999px;
+  background: alpha(@theme_bg, 0.78);
+  color: @theme_text;
+  -gtk-icon-size: 20px;
+}
+
+.shot-length {
+  font-feature-settings: "tnum";
+}
+
 .shot-size {
   color: @theme_text_tertiary;
   font-size: 11.5px;
@@ -334,26 +458,6 @@ window.capture-window .capture-bar button.icon-button:checked {
   font-size: 32px;
   font-weight: 600;
   font-feature-settings: "tnum";
-}
-
-.capture-pill-bar {
-  background: @theme_popover;
-  color: @theme_text;
-  border-radius: var(--nyx-radius-card);
-  padding: 4px 6px 4px 12px;
-}
-
-.capture-pill-dot {
-  color: @theme_danger;
-}
-
-.capture-pill-dot.paused {
-  color: @theme_dim_text;
-}
-
-.capture-pill-time {
-  font-feature-settings: "tnum";
-  min-width: 48px;
 }
 
 window.capture-pin {

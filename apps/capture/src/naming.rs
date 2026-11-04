@@ -16,6 +16,10 @@ pub fn save_dir() -> PathBuf {
 /// a key binding has no terminal to show it.
 pub fn log_error(what: &str, err: &dyn std::fmt::Display) {
     eprintln!("nyx-capture: {what}: {err}");
+    log_line(what, err);
+}
+
+fn log_line(what: &str, err: &dyn std::fmt::Display) {
     let stamp = glib::DateTime::now_local().ok().and_then(|t| t.format("%F %T").ok()).map(|s| s.to_string()).unwrap_or_default();
     let line = format!("{stamp} {what}: {err}\n");
     let path = paths::cache_dir().join("capture.log");

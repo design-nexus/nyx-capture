@@ -18,9 +18,19 @@ in place of `install.sh`.
 
 - **The Print key** (`nyx-capture --capture`) freezes the screen and opens the capture bar
   at the bottom: **Smart** (drag a region, click a window, or click empty space for the
-  screen), **Window** or **Screen**, plus three choices for this shot: edit afterwards (E),
-  copy its text instead (O), wait 3 seconds (D). Size and app show beside the pointer, with
-  a magnifier. Esc, or the key again, cancels.
+  screen), **Window**, **Screen**, **Scroll** and **Record** (keys 1–5). For a shot, three
+  choices apply to this one: edit afterwards (E), copy its text instead (O), wait 3 seconds
+  (D). Size and app show beside the pointer, with a magnifier. Esc, or the key again,
+  cancels. The History window's capture buttons open the same bar on their mode.
+- **Scroll**: pick the part of a page that scrolls (or click a window), then scroll it as
+  usual. A dashed frame marks the area, a strip beside it shows the stitched image growing,
+  and Done (or Enter, or the key again) finishes; Esc or Cancel throws it away. Scrolling
+  back up adds nothing twice. The tall shot is handled like any other, with a "Scrolled" tag.
+- **Record**: the bar's choices become system sound, mic, pointer, webcam, a 3 s countdown
+  and the format. Pick an area, a window or the screen. While recording, the bar sits just
+  outside the red-framed area with the time, mic mute, pause, discard and stop; recording
+  the whole screen, it shrinks to a pill in the top right corner (point at it to open it).
+  The key again stops, and the recording gets its own card with Play.
 - After the shot (Settings → Capture → After a screenshot): copy and save it (the default),
   copy it, edit it, or pin it. A **shot card** then sits in the corner with Edit, Copy,
   Copy text, Show in folder, Keep and Close; drag its picture into any app. It goes after
@@ -32,7 +42,6 @@ in place of `install.sh`.
   Without layer-shell, slurp picks the region.
 - After a shot: open it in the editor (the default), copy it, save it, read its text, or pin
   it. Settings → Capture picks which, and the Save folder.
-- **Scrolling capture** of a long region, through omasnap.
 - Each shot is titled with the window that was focused, for history and Glimpse.
 
 ## Editing
@@ -90,7 +99,7 @@ nyx-capture --ocr              Region, then copy its text
 nyx-capture --pin              Region, then pin it
 nyx-capture --edit             Region, then the editor
 nyx-capture --copy | --save [PATH]
-nyx-capture --scroll           Scrolling capture (omasnap)
+nyx-capture --scroll           The capture bar on Scroll
 nyx-capture --record [--region] [--webcam]
 nyx-capture --record --stop | --pause
 nyx-capture --section ID       Open Recent, Starred, or settings

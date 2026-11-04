@@ -455,7 +455,7 @@ gpu-screen-recorder / wf-recorder / wl-screenrec / portal+PipeWire. System audio
 
 Assistant send-screenshot (authorization switch, like News `assistant_can_subscribe`). Intelligent redaction. Glimpse semantic search (Glimpse already has embeddings). Tutorial capture. Scrolling capture only if a backend exists (omasnap scroll today). Drive sharing when Drive exists. No cloud in core.
 
-Landed on this machine: `assistant_can_send` (default off) gates `capture.send_screenshot`. Editor Redact covers OCR line boxes with solid boxes (email/URL/phone/Luhn card/IPv4/`sk_|pk_|ghp_|github_pat_`) and marks the row sensitive, which drops FTS OCR and the `.ocr.txt` sidecar. Glimpse reader extracts stored OCR for PNGs and skips sensitive shots. `nyx-capture --scroll` wraps `omasnap --scroll --save`. Tutorial is a first-run dialog. Drive is skipped — no Drive app. Assistant’s grim ability is unchanged.
+Landed on this machine: `assistant_can_send` (default off) gates `capture.send_screenshot`. Editor Redact covers OCR line boxes with solid boxes (email/URL/phone/Luhn card/IPv4/`sk_|pk_|ghp_|github_pat_`) and marks the row sensitive, which drops FTS OCR and the `.ocr.txt` sidecar. Glimpse reader extracts stored OCR for PNGs and skips sensitive shots. `nyx-capture --scroll` opens the capture bar on Scroll; Capture stitches the frames itself (`nyx-capture-core::scroll`). Tutorial is a first-run dialog. Drive is skipped — no Drive app. Assistant’s grim ability is unchanged.
 
 ---
 

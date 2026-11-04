@@ -16,7 +16,6 @@ pub struct Tools {
     pub ffmpeg: bool,
     pub mpv: bool,
     pub gst_launch: bool,
-    pub omasnap: bool,
 }
 
 impl Tools {
@@ -34,7 +33,6 @@ impl Tools {
             ffmpeg: present("ffmpeg"),
             mpv: present("mpv"),
             gst_launch: present("gst-launch-1.0"),
-            omasnap: present("omasnap"),
         }
     }
 
@@ -70,8 +68,9 @@ impl Tools {
         self.mpv
     }
 
+    /// Capture's own stitcher needs only grim.
     pub fn can_scroll(&self) -> bool {
-        self.omasnap
+        self.grim
     }
 }
 

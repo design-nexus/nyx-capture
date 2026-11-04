@@ -28,6 +28,10 @@ pub enum Mode {
     Window,
     /// The whole monitor.
     Screen,
+    /// An area (or a window) scrolled through and stitched into one tall shot.
+    Scroll,
+    /// An area, a window or the whole monitor, recorded.
+    Record,
 }
 
 impl Mode {
@@ -35,6 +39,8 @@ impl Mode {
         match s {
             "window" => Mode::Window,
             "screen" => Mode::Screen,
+            "scroll" => Mode::Scroll,
+            "record" => Mode::Record,
             _ => Mode::Smart,
         }
     }
@@ -44,7 +50,14 @@ impl Mode {
             Mode::Smart => "Drag a region · click a window · click empty space for the screen",
             Mode::Window => "Click a window",
             Mode::Screen => "Click or press Enter for the whole screen",
+            Mode::Scroll => "Drag the area to scroll through, or click a window",
+            Mode::Record => "Drag an area · click a window · click empty space for the screen",
         }
+    }
+
+    /// Modes where a drag draws a region.
+    fn drags(self) -> bool {
+        matches!(self, Mode::Smart | Mode::Scroll | Mode::Record)
     }
 }
 
@@ -65,6 +78,8 @@ pub struct Picked {
     /// Window title, empty for a screen.
     pub title: String,
     pub extras: Extras,
+    /// What to do with the area: a shot, a scrolling capture, or a recording.
+    pub mode: Mode,
 }
 
 /// A window (with its class) or a monitor (empty class) the pointer can light.
@@ -81,7 +96,21 @@ struct Bar {
     edit: gtk::ToggleButton,
     text: gtk::ToggleButton,
     delay: gtk::ToggleButton,
+    /// The recording options, shown instead of Text and Delay in Record mode.
+    record: gtk::Box,
     hint: gtk::Label,
+}
+
+impl Bar {
+    /// Each mode shows the choices that apply to it.
+    fn show_for(&self, mode: Mode) {
+        let shot = matches!(mode, Mode::Smart | Mode::Window | Mode::Screen);
+        self.edit.set_visible(mode != Mode::Record);
+        self.text.set_visible(shot);
+        self.delay.set_visible(shot);
+        self.record.set_visible(mode == Mode::Record);
+        self.hint.set_text(mode.hint());
+    }
 }
 
 struct Session {
@@ -108,7 +137,7 @@ impl Session {
             .iter()
             .filter(|t| t.rect.contains(pt.0, pt.1))
             .filter(|t| match self.mode {
-                Mode::Smart => true,
+                Mode::Smart | Mode::Scroll | Mode::Record => true,
                 Mode::Window => t.window,
                 Mode::Screen => !t.window,
             })
@@ -134,7 +163,7 @@ impl Session {
         self.current = None;
         self.hinted = self.target_at(self.cursor);
         if let Some(bar) = &self.bar {
-            bar.hint.set_text(mode.hint());
+            bar.show_for(mode);
         }
     }
 
@@ -480,6 +509,15 @@ fn open(still: Shot, mode: Mode, with_bar: bool, on_pick: Box<dyn FnOnce(Option<
         && let Some((_, layout)) = self::outputs()?.into_iter().next()
     {
         glib::timeout_add_local_once(std::time::Duration::from_millis(ms), move || {
+            // `CAPTURE_TEST_REGION=x,y,w,h` (from the test monitor's corner) picks that area.
+            let region = std::env::var("CAPTURE_TEST_REGION").ok().and_then(|v| {
+                let n: Vec<i32> = v.split(',').filter_map(|p| p.trim().parse().ok()).collect();
+                (n.len() == 4).then(|| Rect::new(layout.x + n[0], layout.y + n[1], n[2], n[3]))
+            });
+            if let Some(r) = region {
+                pick_now(r, (String::new(), String::new()));
+                return;
+            }
             let lit = SESSION.with(|s| s.borrow().as_ref().and_then(|s| s.borrow().hinted.clone()));
             match lit {
                 Some(t) => pick_now(t.rect, (t.class, t.title)),
@@ -522,6 +560,8 @@ fn build_bar(session: &Rc<RefCell<Session>>) -> (gtk::Box, Bar) {
         (Mode::Smart, "capture-mode-smart-symbolic", "Smart", "Smart: drag a region, click a window, or click empty space (1)"),
         (Mode::Window, "capture-mode-window-symbolic", "Window", "Window: click one (2)"),
         (Mode::Screen, "capture-mode-screen-symbolic", "Screen", "Screen: the whole monitor (3)"),
+        (Mode::Scroll, "capture-mode-scroll-symbolic", "Scroll", "Scroll: an area you scroll through, stitched into one tall shot (4)"),
+        (Mode::Record, "capture-mode-record-symbolic", "Record", "Record: an area, a window or the screen (5)"),
     ] {
         let content = gtk::Box::new(gtk::Orientation::Horizontal, 6);
         content.append(&gtk::Image::from_icon_name(icon));
@@ -567,6 +607,8 @@ fn build_bar(session: &Rc<RefCell<Session>>) -> (gtk::Box, Bar) {
     let edit = toggle("capture-edit-symbolic", "Edit afterwards (E)", |x, on| x.edit = on);
     let text = toggle("capture-text-symbolic", "Copy its text instead (O)", |x, on| x.text = on);
     let delay = toggle("capture-timer-symbolic", "Wait 3 seconds, then take it (D)", |x, on| x.delay = on);
+    let record = record_options();
+    bar.append(&record);
     bar.append(&separator());
 
     let hint = gtk::Label::new(Some(mode.hint()));
@@ -576,7 +618,69 @@ fn build_bar(session: &Rc<RefCell<Session>>) -> (gtk::Box, Bar) {
     esc.add_css_class("capture-kbd");
     esc.set_margin_end(4);
     bar.append(&esc);
-    (bar, Bar { modes, edit, text, delay, hint })
+    let parts = Bar { modes, edit, text, delay, record, hint };
+    parts.show_for(mode);
+    (bar, parts)
+}
+
+/// Record mode's choices: system sound, mic, pointer, webcam, countdown and format.
+/// They are the Recording settings, so they're remembered.
+fn record_options() -> gtk::Box {
+    let row = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    let p = prefs::get();
+    let audio = p.record_audio.clone();
+    let (desktop, mic) = (matches!(audio.as_str(), "desktop" | "both"), matches!(audio.as_str(), "mic" | "both"));
+    let option = |icon: &str, tip: &str, on: bool, set: fn(bool)| {
+        let b = gtk::ToggleButton::new();
+        b.set_icon_name(icon);
+        b.add_css_class("flat");
+        b.add_css_class("icon-button");
+        b.set_tooltip_text(Some(tip));
+        b.set_focus_on_click(false);
+        b.set_can_focus(false);
+        b.set_active(on);
+        b.connect_toggled(move |b| set(b.is_active()));
+        row.append(&b);
+    };
+    option("capture-speaker-symbolic", "System sound", desktop, |on| set_audio(Some(on), None));
+    option("capture-mic-symbolic", "Microphone", mic, |on| set_audio(None, Some(on)));
+    option("capture-pointer-symbolic", "Show the pointer", p.record_cursor, |on| prefs::update(|p| p.record_cursor = on));
+    if nyx_capture_core::webcam::available() {
+        option("capture-cam-symbolic", "Webcam in the corner", p.record_webcam, |on| prefs::update(|p| p.record_webcam = on));
+    }
+    option("capture-timer-symbolic", "Count down 3 seconds first", p.record_delay > 0, |on| prefs::update(|p| p.record_delay = if on { 3 } else { 0 }));
+    let formats = gtk::StringList::new(&["MP4", "WebM", "GIF"]);
+    let format = gtk::DropDown::new(Some(formats), gtk::Expression::NONE);
+    format.add_css_class("capture-format");
+    format.set_hexpand(false);
+    format.set_halign(gtk::Align::Start);
+    format.set_tooltip_text(Some("Format"));
+    format.set_focus_on_click(false);
+    format.set_selected(match p.record_container.as_str() {
+        "webm" => 1,
+        "gif" => 2,
+        _ => 0,
+    });
+    format.connect_selected_notify(|d| {
+        let value = ["mp4", "webm", "gif"][d.selected().min(2) as usize];
+        prefs::update(|p| p.record_container = value.to_string());
+    });
+    row.append(&format);
+    row
+}
+
+/// System sound and mic as the Recording setting's one value.
+fn set_audio(desktop: Option<bool>, mic: Option<bool>) {
+    let now = prefs::get().record_audio;
+    let desktop = desktop.unwrap_or(matches!(now.as_str(), "desktop" | "both"));
+    let mic = mic.unwrap_or(matches!(now.as_str(), "mic" | "both"));
+    let value = match (desktop, mic) {
+        (true, true) => "both",
+        (true, false) => "desktop",
+        (false, true) => "mic",
+        (false, false) => "none",
+    };
+    prefs::update(|p| p.record_audio = value.to_string());
 }
 
 fn separator() -> gtk::Separator {
@@ -643,6 +747,12 @@ fn focused_output() -> anyhow::Result<gdk::Monitor> {
         .ok_or_else(|| anyhow::anyhow!("no monitors"))
 }
 
+/// The focused monitor and its layout rect.
+pub fn focused() -> anyhow::Result<(gdk::Monitor, Rect)> {
+    let focused = focused_output()?;
+    outputs()?.into_iter().find(|(m, _)| *m == focused).ok_or_else(|| anyhow::anyhow!("no monitors"))
+}
+
 /// The monitor (and its layout rect) holding the middle of `area`, else the focused one.
 pub fn output_for(area: Rect) -> anyhow::Result<(gdk::Monitor, Rect)> {
     let outputs = outputs()?;
@@ -652,80 +762,6 @@ pub fn output_for(area: Rect) -> anyhow::Result<(gdk::Monitor, Rect)> {
     }
     let focused = focused_output()?;
     outputs.into_iter().find(|(m, _)| *m == focused).ok_or_else(|| anyhow::anyhow!("no monitors"))
-}
-
-thread_local! {
-    static PILL: RefCell<Option<gtk::Window>> = const { RefCell::new(None) };
-}
-
-/// While recording: a small bar at the top of the focused monitor with the time recorded
-/// (paused time not counted) and pause and stop buttons. Not focusable; takes no keys.
-pub fn show_recording_pill() {
-    hide_recording_pill();
-    if !supported() {
-        return;
-    }
-    let Ok(monitor) = focused_output() else { return };
-    let window = gtk::Window::new();
-    window.init_layer_shell();
-    window.set_layer(Layer::Overlay);
-    window.set_namespace(Some("nyx-capture-recording"));
-    window.set_keyboard_mode(KeyboardMode::None);
-    window.set_anchor(Edge::Top, true);
-    window.set_margin(Edge::Top, 8);
-    window.set_exclusive_zone(0);
-    window.set_monitor(Some(&monitor));
-    window.add_css_class("capture-pill");
-    window.set_decorated(false);
-    window.set_resizable(false);
-    if let Some(app) = gtk::gio::Application::default().and_then(|a| a.downcast::<gtk::Application>().ok()) {
-        window.set_application(Some(&app));
-    }
-    let bar = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-    bar.add_css_class("capture-pill-bar");
-    let dot = gtk::Image::from_icon_name("media-record-symbolic");
-    dot.add_css_class("capture-pill-dot");
-    let time = gtk::Label::new(Some("0:00"));
-    time.add_css_class("capture-pill-time");
-    bar.append(&dot);
-    bar.append(&time);
-    if nyx_capture_core::record::can_pause() {
-        let pause = crate::widgets::icon_button("media-playback-pause-symbolic", "Pause or resume (Ctrl+Alt+P)");
-        pause.connect_clicked(|_| crate::window::pause_recording());
-        bar.append(&pause);
-    }
-    let stop = crate::widgets::icon_button("media-playback-stop-symbolic", "Stop recording (Ctrl+R)");
-    stop.connect_clicked(|_| crate::window::stop_recording());
-    bar.append(&stop);
-    window.set_child(Some(&bar));
-    let seconds = Cell::new(0u64);
-    let weak = window.downgrade();
-    glib::timeout_add_seconds_local(1, move || {
-        let Some(w) = weak.upgrade() else { return glib::ControlFlow::Break };
-        let Some(session) = nyx_capture_core::record::active() else {
-            w.close();
-            return glib::ControlFlow::Break;
-        };
-        if !session.paused {
-            seconds.set(seconds.get() + 1);
-        }
-        let n = seconds.get();
-        time.set_text(&if n >= 3600 { format!("{}:{:02}:{:02}", n / 3600, n / 60 % 60, n % 60) } else { format!("{}:{:02}", n / 60, n % 60) });
-        if session.paused {
-            dot.add_css_class("paused");
-        } else {
-            dot.remove_css_class("paused");
-        }
-        glib::ControlFlow::Continue
-    });
-    window.present();
-    PILL.with(|p| *p.borrow_mut() = Some(window));
-}
-
-pub fn hide_recording_pill() {
-    if let Some(w) = PILL.with(|p| p.borrow_mut().take()) {
-        w.close();
-    }
 }
 
 fn outputs() -> anyhow::Result<Vec<(gdk::Monitor, Rect)>> {
@@ -789,8 +825,8 @@ fn wire_pointer(canvas: &gtk::DrawingArea, session: Rc<RefCell<Session>>, layout
         let mut sess = s.borrow_mut();
         sess.cursor = pt;
         sess.hinted = sess.target_at(pt);
-        // Only Smart draws regions; Window and Screen take what is lit on release.
-        if sess.mode == Mode::Smart {
+        // Window and Screen take what is lit on release; the others draw regions.
+        if sess.mode.drags() {
             sess.dragging = true;
             sess.origin = Some(pt);
             sess.current = Some(drag_rect(pt, pt));
@@ -849,7 +885,7 @@ fn wire_keys(window: &gtk::Window, session: Rc<RefCell<Session>>) {
             redraw();
         };
         let flip = |which: fn(&Bar) -> &gtk::ToggleButton| {
-            let b = session.borrow().bar.as_ref().map(|bar| which(bar).clone());
+            let b = session.borrow().bar.as_ref().map(|bar| which(bar).clone()).filter(|b| b.is_visible());
             if let Some(b) = b {
                 b.set_active(!b.is_active());
             }
@@ -876,6 +912,8 @@ fn wire_keys(window: &gtk::Window, session: Rc<RefCell<Session>>) {
             gdk::Key::_1 | gdk::Key::KP_1 => mode(Mode::Smart),
             gdk::Key::_2 | gdk::Key::KP_2 => mode(Mode::Window),
             gdk::Key::_3 | gdk::Key::KP_3 => mode(Mode::Screen),
+            gdk::Key::_4 | gdk::Key::KP_4 => mode(Mode::Scroll),
+            gdk::Key::_5 | gdk::Key::KP_5 => mode(Mode::Record),
             gdk::Key::e | gdk::Key::E => flip(|b| &b.edit),
             gdk::Key::o | gdk::Key::O => flip(|b| &b.text),
             gdk::Key::d | gdk::Key::D => flip(|b| &b.delay),
@@ -932,8 +970,8 @@ pub fn dismiss() {
 }
 
 fn pick_now(rect: Rect, (app, title): (String, String)) {
-    let extras = SESSION.with(|s| s.borrow().as_ref().map(|s| s.borrow().extras)).unwrap_or_default();
-    finish(Some(Picked { rect, app, title, extras }));
+    let (extras, mode) = SESSION.with(|s| s.borrow().as_ref().map(|s| (s.borrow().extras, s.borrow().mode))).unwrap_or((Extras::default(), Mode::Smart));
+    finish(Some(Picked { rect, app, title, extras, mode }));
 }
 
 fn finish(picked: Option<Picked>) {

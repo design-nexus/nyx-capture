@@ -38,6 +38,8 @@ pub enum Done {
     Copied,
     Saved,
     TextCopied,
+    /// A recording, with its format ("MP4").
+    Video(&'static str),
 }
 
 impl Done {
@@ -47,6 +49,7 @@ impl Done {
             Done::Copied => "Copied".into(),
             Done::Saved => format!("Saved to {folder}"),
             Done::TextCopied => format!("Text copied · saved to {folder}"),
+            Done::Video(format) => format!("Saved to {folder} · {format}"),
         }
     }
 }
@@ -54,7 +57,8 @@ impl Done {
 struct Card {
     window: gtk::Window,
     body: gtk::Box,
-    shot: Shot,
+    /// None for a recording.
+    shot: Option<Shot>,
     file: RefCell<Option<PathBuf>>,
     connector: Option<String>,
     done: Cell<Done>,
@@ -74,8 +78,9 @@ thread_local! {
     static CARDS: RefCell<Vec<Rc<Card>>> = const { RefCell::new(Vec::new()) };
 }
 
-/// Show a card for `shot`. `file` is where it was saved (None when only copied).
-pub fn show(shot: Shot, file: Option<PathBuf>, done: Done) {
+/// Show a card for `shot`. `file` is where it was saved (None when only copied);
+/// `tag` marks the picture's corner (a scrolled shot).
+pub fn show(shot: Shot, file: Option<PathBuf>, done: Done, tag: Option<&'static str>) {
     if !prefs::get().shot_card {
         return;
     }
@@ -84,7 +89,9 @@ pub fn show(shot: Shot, file: Option<PathBuf>, done: Done) {
     for card in stale {
         close(&card);
     }
-    if let Err(err) = build(shot, file, done) {
+    let preview = shot.image.to_rgba8();
+    let (area, size) = (shot.area, (shot.image.width(), shot.image.height()));
+    if let Err(err) = build(Some(shot), preview, area, size, None, file, done, tag) {
         crate::naming::log_error("card", &err);
     }
 }
@@ -109,10 +116,71 @@ pub fn unhide_all() {
     restack();
 }
 
-fn build(shot: Shot, file: Option<PathBuf>, done: Done) -> anyhow::Result<()> {
-    let (monitor, _) = overlay::output_for(shot.area)?;
+/// A card for a recording: a frame from it, its length, Play.
+pub fn show_video(path: PathBuf) {
+    if !prefs::get().shot_card {
+        return;
+    }
+    // Reading the frame takes a moment: the app mustn't quit before the card is up.
+    let hold = gio::Application::default().map(|a| a.hold());
+    crate::cmd::background(
+        {
+            let path = path.clone();
+            move || video_info(&path)
+        },
+        move |info| {
+            let (frame, size, length) = info.unwrap_or_else(|| (RgbaImage::from_pixel(16, 9, image::Rgba([30, 30, 46, 255])), (0, 0), None));
+            let format = match path.extension().and_then(|e| e.to_str()) {
+                Some("webm") => "WebM",
+                Some("gif") => "GIF",
+                _ => "MP4",
+            };
+            let stale: Vec<Rc<Card>> = CARDS.with(|c| c.borrow().iter().filter(|c| !c.kept.get()).cloned().collect());
+            for card in stale {
+                close(&card);
+            }
+            let area = overlay::focused().map(|(_, r)| r).unwrap_or(nyx_capture_core::geom::Rect::new(0, 0, 1, 1));
+            if let Err(err) = build(None, frame, area, size, length, Some(path), Done::Video(format), None) {
+                crate::naming::log_error("card", &err);
+            }
+            drop(hold);
+        },
+    );
+}
+
+/// A frame from half a second in, the video's size, and its length ("0:42").
+fn video_info(path: &Path) -> Option<(RgbaImage, (u32, u32), Option<String>)> {
+    let p = path.to_string_lossy();
+    let out = std::process::Command::new("ffmpeg")
+        .args(["-v", "error", "-ss", "0.5", "-i", &p, "-frames:v", "1", "-f", "image2pipe", "-vcodec", "png", "-"])
+        .output()
+        .ok()?;
+    let frame = image::load_from_memory_with_format(&out.stdout, image::ImageFormat::Png).ok()?.to_rgba8();
+    let size = frame.dimensions();
+    let probe = std::process::Command::new("ffprobe")
+        .args(["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", &p])
+        .output()
+        .ok();
+    let length = probe
+        .and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse::<f64>().ok())
+        .map(|secs| crate::recording::clock(secs.round() as u64));
+    Some((frame, size, length))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build(
+    shot: Option<Shot>,
+    rgba: RgbaImage,
+    area: nyx_capture_core::geom::Rect,
+    size: (u32, u32),
+    length: Option<String>,
+    file: Option<PathBuf>,
+    done: Done,
+    tag: Option<&str>,
+) -> anyhow::Result<()> {
+    let video = shot.is_none();
+    let (monitor, _) = overlay::output_for(area)?;
     let connector = monitor.connector().map(|c| c.to_string());
-    let rgba = shot.image.to_rgba8();
     let thumb_h = thumb_height(rgba.width(), rgba.height());
     let thumb = cover(&rgba, INNER, thumb_h, monitor.scale_factor().max(1));
     let (tw, th) = thumb.dimensions();
@@ -165,6 +233,30 @@ fn build(shot: Shot, file: Option<PathBuf>, done: Done) -> anyhow::Result<()> {
     thumb_box.set_overflow(gtk::Overflow::Hidden);
     thumb_box.set_child(Some(&picture));
     thumb_box.add_overlay(&badge);
+    if video {
+        let play = gtk::Image::from_icon_name("capture-play-symbolic");
+        play.add_css_class("shot-play");
+        play.set_halign(gtk::Align::Center);
+        play.set_valign(gtk::Align::Center);
+        thumb_box.add_overlay(&play);
+        if let Some(length) = &length {
+            let dur = gtk::Label::new(Some(length));
+            dur.add_css_class("shot-badge");
+            dur.add_css_class("shot-length");
+            dur.set_halign(gtk::Align::End);
+            dur.set_valign(gtk::Align::End);
+            thumb_box.add_overlay(&dur);
+        }
+    }
+    if let Some(tag) = tag {
+        let mark = gtk::Box::new(gtk::Orientation::Horizontal, 5);
+        mark.add_css_class("shot-badge");
+        mark.append(&gtk::Image::from_icon_name("capture-mode-scroll-symbolic"));
+        mark.append(&gtk::Label::new(Some(tag)));
+        mark.set_halign(gtk::Align::End);
+        mark.set_valign(gtk::Align::Start);
+        thumb_box.add_overlay(&mark);
+    }
     thumb_box.set_tooltip_text(Some("Drag into another app"));
 
     // What happened to it, and its size.
@@ -172,7 +264,7 @@ fn build(shot: Shot, file: Option<PathBuf>, done: Done) -> anyhow::Result<()> {
     status.set_xalign(0.0);
     status.set_hexpand(true);
     status.set_ellipsize(gtk::pango::EllipsizeMode::End);
-    let size = gtk::Label::new(Some(&format!("{} × {}", rgba.width(), rgba.height())));
+    let size = gtk::Label::new(Some(&format!("{} × {}", crate::scrolling::thousands(size.0), crate::scrolling::thousands(size.1))));
     size.add_css_class("shot-size");
     let status_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     status_row.add_css_class("shot-status");
@@ -183,11 +275,12 @@ fn build(shot: Shot, file: Option<PathBuf>, done: Done) -> anyhow::Result<()> {
     status_row.append(&status);
     status_row.append(&size);
 
-    // Actions.
-    let edit = action_button("capture-edit-symbolic", "Edit");
+    // Actions: Edit, Copy, Text for a shot; Play and Copy file for a recording.
+    let edit = if video { action_button("capture-play-symbolic", "Play") } else { action_button("capture-edit-symbolic", "Edit") };
     edit.add_css_class("suggested-action");
-    let copy = action_button("capture-copy-symbolic", "Copy again");
+    let copy = action_button("capture-copy-symbolic", if video { "Copy the file" } else { "Copy again" });
     let text = action_button("capture-text-symbolic", "Copy its text");
+    text.set_visible(!video);
     let folder = action_button("capture-folder-symbolic", "Show in folder");
     let pin = gtk::ToggleButton::new();
     pin.set_icon_name("capture-pin-symbolic");
@@ -261,6 +354,7 @@ fn build(shot: Shot, file: Option<PathBuf>, done: Done) -> anyhow::Result<()> {
     edit.connect_clicked(move |_| on());
     let on = with(copy_image);
     copy.connect_clicked(move |_| on());
+    let _ = video;
     let on = with(copy_text);
     text.connect_clicked(move |_| on());
     let on = with(show_in_folder);
@@ -445,27 +539,44 @@ fn finish(card: &Rc<Card>) {
     restack();
 }
 
+/// Edit a shot; play a recording.
 fn open_editor(card: &Rc<Card>) {
-    crate::editor::open(card.shot.clone());
+    match &card.shot {
+        Some(shot) => crate::editor::open(shot.clone()),
+        None => {
+            if let Some(path) = card.file.borrow().as_ref() {
+                crate::cmd::spawn(&["xdg-open", &path.to_string_lossy()]);
+            }
+        }
+    }
     if !card.kept.get() {
         close(card);
     }
 }
 
+/// Copy a shot's picture again; for a recording, the file (to paste into a chat or a folder).
 fn copy_image(card: &Rc<Card>) {
     let shot = card.shot.clone();
+    let file = card.file.borrow().clone();
     let weak = Rc::downgrade(card);
-    crate::cmd::background(move || clipboard::copy_png(&shot.png()?), move |result| {
-        let Some(card) = weak.upgrade() else { return };
-        match result {
-            Ok(()) => flash(&card, "Copied again"),
-            Err(err) => flash(&card, &err.to_string()),
-        }
-    });
+    crate::cmd::background(
+        move || match (shot, file) {
+            (Some(shot), _) => clipboard::copy_png(&shot.png()?),
+            (None, Some(path)) => clipboard::copy_uri(&gio::File::for_path(&path).uri()),
+            (None, None) => Ok(()),
+        },
+        move |result| {
+            let Some(card) = weak.upgrade() else { return };
+            match result {
+                Ok(()) => flash(&card, if card.shot.is_some() { "Copied again" } else { "File copied" }),
+                Err(err) => flash(&card, &err.to_string()),
+            }
+        },
+    );
 }
 
 fn copy_text(card: &Rc<Card>) {
-    let image = card.shot.image.clone();
+    let Some(image) = card.shot.as_ref().map(|s| s.image.clone()) else { return };
     let p = prefs::get();
     let (mode, langs) = (OcrMode::parse(&p.ocr_mode), p.ocr_langs);
     flash(card, "Reading text…");
@@ -505,7 +616,7 @@ fn ensure_file(card: &Card) -> Option<PathBuf> {
     }
     let dir = paths::cache_dir().join("cards");
     let path = nyx_capture_core::action::unique_png(&dir, "screenshot");
-    nyx_capture_core::atomic_write(&path, &card.shot.png().ok()?).ok()?;
+    nyx_capture_core::atomic_write(&path, &card.shot.as_ref()?.png().ok()?).ok()?;
     card.file.replace(Some(path.clone()));
     Some(path)
 }

@@ -209,61 +209,18 @@ pub fn send_screenshot(id: &str) -> Result<Value, String> {
     Ok(json!({"id": id, "text": text, "path": path.display().to_string()}))
 }
 
+/// The window's Scrolling capture button, Ctrl+Shift+L and `--scroll`: the capture bar
+/// on Scroll.
 pub fn start_scroll() {
     if record::active().is_some() {
         toast("Stop the recording first");
         return;
     }
-    if !nyx_capture_core::scroll::available() {
-        toast("Scrolling capture needs omasnap");
-        return;
+    if let Some(app) = gio::Application::default().and_then(|a| a.downcast::<gtk::Application>().ok()) {
+        capture_with_bar(&app, crate::overlay::Mode::Scroll);
     }
-    toast("Scroll the region in omasnap");
-    // With history off, the shot goes where saved screenshots go, not the history folder.
-    let dir = if prefs::get().history {
-        paths::captures_dir()
-    } else {
-        nyx_capture_core::action::default_save_path().parent().map(PathBuf::from).unwrap_or_else(paths::captures_dir)
-    };
-    crate::cmd::background(
-        move || nyx_capture_core::scroll::capture(&dir),
-        |result| match result {
-            Ok(path) => ingest_scroll(path),
-            Err(err) => toast(&err.to_string()),
-        },
-    );
 }
 
-fn ingest_scroll(path: PathBuf) {
-    crate::cmd::background(
-        move || {
-            let img = image::open(&path)?.to_rgba8();
-            let (w, h) = (img.width() as i32, img.height() as i32);
-            let id = if prefs::get().history {
-                let db = store::open(&paths::library_db())?;
-                let id = db.insert(&store::NewCapture {
-                    kind: CaptureKind::Screenshot,
-                    width: w,
-                    height: h,
-                    path: path.clone(),
-                    source: "omasnap".into(),
-                })?;
-                let _ = db.thumb(&id, &path, &paths::thumb_file(&id), false);
-                Some(id)
-            } else {
-                None
-            };
-            anyhow::Ok((img, id, path))
-        },
-        |result| match result {
-            Ok((img, id, path)) => {
-                reload();
-                crate::editor::open_saved(img, annot::EditState::default(), id.unwrap_or_default(), path);
-            }
-            Err(err) => toast(&err.to_string()),
-        },
-    );
-}
 
 pub fn show_tutorial() {
     let (dialog, card) = widgets::dialog("Capture tutorial", 460);
@@ -593,7 +550,24 @@ fn build(app: &gtk::Application) {
     prune_history();
 }
 
+/// The window's capture buttons (and the Assistant's): the capture bar on that mode,
+/// as the Print key opens it, where the overlay can run.
 pub fn capture_now(mode: CaptureMode) {
+    let start = match mode {
+        CaptureMode::SelectRegion => Some(crate::overlay::Mode::Smart),
+        CaptureMode::SelectWindow => Some(crate::overlay::Mode::Window),
+        CaptureMode::FullDesktop => Some(crate::overlay::Mode::Screen),
+        _ => None,
+    };
+    let app = gio::Application::default().and_then(|a| a.downcast::<gtk::Application>().ok());
+    if let (Some(start), Some(app)) = (start, app)
+        && crate::overlay::prefer()
+        && crate::overlay::supported()
+        && nyx_capture_core::capture::pick(&prefs::get().backend) != "portal"
+    {
+        capture_with_bar(&app, start);
+        return;
+    }
     capture_with(mode, after_from_prefs(), 0);
 }
 
@@ -619,11 +593,29 @@ pub fn capture_title() -> String {
     LAST_TITLE.with(|t| t.borrow().clone())
 }
 
+/// How long to wait after hiding the history window before taking the still.
+const HIDE_WAIT_MS: u64 = 450;
+
 /// The Print key (`--capture`): the overlay with the capture bar, then what Settings →
 /// Capture says to do with the shot. Pressed again while choosing, it closes the overlay.
-pub fn capture_from_key(app: &gtk::Application) {
+pub fn capture_from_key(app: &gtk::Application, mode: Option<&str>) {
+    let mode = mode.map(str::to_string).unwrap_or_else(|| prefs::get().capture_start);
+    capture_with_bar(app, crate::overlay::Mode::parse(&mode));
+}
+
+/// The capture bar starting on `start`: the Print key, and the window's capture buttons.
+fn capture_with_bar(app: &gtk::Application, start: crate::overlay::Mode) {
     if crate::overlay::is_open() {
         crate::overlay::dismiss();
+        return;
+    }
+    // The key again finishes what it started.
+    if crate::scrolling::is_active() {
+        crate::scrolling::done();
+        return;
+    }
+    if record::active().is_some() {
+        stop_recording();
         return;
     }
     let hold = app.hold();
@@ -639,8 +631,10 @@ pub fn capture_from_key(app: &gtk::Application) {
             w.present();
         }
     });
-    // The history window and the cards must be gone from the screen before the still.
-    let wait = if shown { 250 } else if cards { 120 } else { 0 };
+    // The history window and the cards must be gone from the screen before the still,
+    // including Hyprland's animations: the windows left behind resize to fill the gap
+    // (Omarchy: about 380 ms) and layers fade (about 140 ms).
+    let wait = if shown { HIDE_WAIT_MS } else if cards { 200 } else { 0 };
     glib::timeout_add_local_once(std::time::Duration::from_millis(wait), move || {
         let still = match crate::overlay::freeze() {
             Ok(still) => still,
@@ -650,7 +644,6 @@ pub fn capture_from_key(app: &gtk::Application) {
                 return;
             }
         };
-        let start = crate::overlay::Mode::parse(&prefs::get().capture_start);
         let frozen = still.clone();
         let on_cancel = restore.clone();
         let picked = crate::overlay::pick_with_bar(still, start, move |picked| match picked {
@@ -664,9 +657,29 @@ pub fn capture_from_key(app: &gtk::Application) {
     });
 }
 
-/// The shot itself: cropped from the still, or taken fresh after the 3 s wait.
+/// The shot itself: cropped from the still, or taken fresh after the 3 s wait; or, in
+/// Scroll mode, stitched while the page scrolls; or, in Record mode, a recording.
 fn take_picked(still: nyx_capture_core::capture::Shot, picked: crate::overlay::Picked, restore: Rc<dyn Fn()>, hold: gio::ApplicationHoldGuard) {
     let rect = picked.rect;
+    match picked.mode {
+        crate::overlay::Mode::Scroll => {
+            let on_cancel = restore.clone();
+            let started = crate::scrolling::start(rect, move |shot| match shot {
+                Some(shot) => deliver_shot(shot, picked, restore, hold),
+                None => restore(),
+            });
+            if let Err(err) = started {
+                crate::naming::log_error("scroll", &err);
+                on_cancel();
+            }
+            return;
+        }
+        crate::overlay::Mode::Record => {
+            crate::recording::start(&picked, still.area, restore, hold);
+            return;
+        }
+        _ => {}
+    }
     let delay = picked.extras.delay;
     let deliver = move |result: anyhow::Result<nyx_capture_core::capture::Shot>| match result {
         Ok(shot) => deliver_shot(shot, picked, restore, hold),
@@ -725,6 +738,7 @@ fn deliver_shot(shot: nyx_capture_core::capture::Shot, picked: crate::overlay::P
         return;
     }
     let path = matches!(after, After::Quick | After::Save | After::Ocr).then(|| crate::naming::next_path(&picked.app));
+    let tag = (picked.mode == crate::overlay::Mode::Scroll).then_some("Scrolled");
     let p = prefs::get();
     let (langs, mode) = (p.ocr_langs, OcrMode::parse(&p.ocr_mode));
     let work_shot = shot.clone();
@@ -754,7 +768,7 @@ fn deliver_shot(shot: nyx_capture_core::capture::Shot, picked: crate::overlay::P
         },
         move |result| {
             match result {
-                Ok(done) => crate::card::show(shot, path, done),
+                Ok(done) => crate::card::show(shot, path, done, tag),
                 Err(err) => {
                     crate::naming::log_error("capture", &err);
                     toast(&err.to_string());
@@ -775,7 +789,7 @@ pub fn capture_with_path(mode: CaptureMode, after: After, delay: u32, save_path:
     LAST_TITLE.with(|t| *t.borrow_mut() = title);
     let win = window();
     // Hyprland doesn't minimize; hide the window so it isn't in its own shot (the
-    // capture waits 250 ms for it to unmap).
+    // capture waits HIDE_WAIT_MS for it, and the windows resizing into its place, to settle).
     if let Some(w) = &win {
         w.set_visible(false);
     }
@@ -827,7 +841,7 @@ fn begin_capture(
         && nyx_capture_core::capture::pick(&backend) != "portal";
     if use_overlay {
         let restore = restore.clone();
-        glib::timeout_add_local_once(std::time::Duration::from_millis(250), move || {
+        glib::timeout_add_local_once(std::time::Duration::from_millis(HIDE_WAIT_MS), move || {
             start_overlay(mode, after, langs, ocr_mode, save_path, restore);
         });
         return;
@@ -836,7 +850,7 @@ fn begin_capture(
     let save_done = save_path.clone();
     crate::cmd::background(
         move || {
-            std::thread::sleep(std::time::Duration::from_millis(250));
+            std::thread::sleep(std::time::Duration::from_millis(HIDE_WAIT_MS));
             let action = Action { mode, after, delay: 0, save_path, ocr_langs: langs, ocr_mode, backend };
             action::capture(&action)
         },
@@ -891,7 +905,7 @@ fn finish_shot(
                     action::finish(&shot, &action)
                 },
                 move |result| match result {
-                    Ok(action::Outcome::Quick(path)) => crate::card::show(card_shot, Some(path), crate::card::Done::CopiedSaved),
+                    Ok(action::Outcome::Quick(path)) => crate::card::show(card_shot, Some(path), crate::card::Done::CopiedSaved, None),
                     other => report_capture(other),
                 },
             );
@@ -1033,9 +1047,20 @@ fn prune_history() {
     );
 }
 
+/// The window's record button, Ctrl+R and Ctrl+Shift+R: stop a recording, or open the
+/// capture bar on Record (where the overlay can run).
 pub fn toggle_record(region: bool) {
     if record::active().is_some() {
         stop_recording();
+        return;
+    }
+    let app = gio::Application::default().and_then(|a| a.downcast::<gtk::Application>().ok());
+    if let Some(app) = app
+        && crate::overlay::prefer()
+        && crate::overlay::supported()
+        && record::pick(&prefs::get().recorder) != Some(nyx_capture_core::RecordBackend::GstPortal)
+    {
+        capture_with_bar(&app, crate::overlay::Mode::Record);
         return;
     }
     start_recording(region);
@@ -1059,24 +1084,7 @@ pub fn start_recording(region: bool) {
 }
 
 pub fn stop_recording() {
-    crate::overlay::hide_recording_pill();
-    crate::cmd::background(record::stop, |result| match result {
-        Ok(Some(path)) => {
-            remember_recording(&path);
-            refresh_record_button();
-            refresh_cam_button();
-            toast(&format!("Saved {}", path.display()));
-        }
-        Ok(None) => {
-            refresh_record_button();
-            refresh_cam_button();
-        }
-        Err(err) => {
-            refresh_record_button();
-            refresh_cam_button();
-            toast(&err.to_string());
-        }
-    });
+    crate::recording::stop(false);
 }
 
 fn begin_record(region: bool) {
@@ -1114,7 +1122,7 @@ fn record_target(region: bool) -> Target {
     record::default_target().unwrap_or(Target::Portal)
 }
 
-fn record_request(target: Target, output: PathBuf) -> RecordRequest {
+pub(crate) fn record_request(target: Target, output: PathBuf) -> RecordRequest {
     let p = prefs::get();
     let (desktop_audio, microphone) = match p.record_audio.as_str() {
         "mic" => (false, true),
@@ -1136,12 +1144,16 @@ fn record_request(target: Target, output: PathBuf) -> RecordRequest {
 
 /// Recordings go to the Videos folder (history lists them there); they're the person's
 /// files, so history retention never deletes them.
-fn record_output_path() -> PathBuf {
+pub(crate) fn record_output_path() -> PathBuf {
     let container = Container::parse(&prefs::get().record_container);
     record::output_path(&record::default_output_dir(), container)
 }
 
 fn launch_record(target: Target) {
+    let area = match &target {
+        Target::Region(r) => Some(*r),
+        _ => None,
+    };
     let req = record_request(target, record_output_path());
     let p = prefs::get();
     let cam = p.record_webcam;
@@ -1149,19 +1161,18 @@ fn launch_record(target: Target) {
     let cam_size = p.record_webcam_size;
     crate::cmd::background(
         move || start_record_session(&req, cam, &cam_device, &cam_size),
-        |result| match result {
+        move |result| match result {
             Ok(_) => {
                 refresh_record_button();
                 refresh_cam_button();
-                crate::overlay::show_recording_pill();
-                toast("Recording");
+                crate::recording::show_bar(area);
             }
             Err(err) => toast(&err.to_string()),
         },
     );
 }
 
-fn start_record_session(
+pub(crate) fn start_record_session(
     req: &RecordRequest,
     cam: bool,
     cam_device: &str,
@@ -1223,7 +1234,7 @@ pub fn toggle_webcam() {
     );
 }
 
-fn remember_recording(path: &std::path::Path) {
+pub(crate) fn remember_recording(path: &std::path::Path) {
     if !prefs::get().history {
         return;
     }
@@ -1248,7 +1259,7 @@ fn remember_recording(path: &std::path::Path) {
     );
 }
 
-fn refresh_record_button() {
+pub(crate) fn refresh_record_button() {
     // A recorder that ended by itself (crashed, killed) still leaves its file for history.
     if let Some(path) = record::ended() {
         remember_recording(&path);
@@ -1284,7 +1295,7 @@ fn refresh_record_button() {
     refresh_status();
 }
 
-fn refresh_cam_button() {
+pub(crate) fn refresh_cam_button() {
     CAM_BTN.with(|b| {
         let Some(btn) = b.borrow().clone() else { return };
         if nyx_capture_core::webcam::active() {
