@@ -18,7 +18,7 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 gtk4-layer-shell = "0.8"
 nyx-capture-core = { path = "../../crates/nyx-capture-core" }
 nyx-share-client = { git = "https://github.com/design-nexus/nyx-share.git", rev = "3923640afdcbfe09fa4c1faaf7d952db071f3812" }
-nyx-core = { git = "https://github.com/design-nexus/nyx-core.git", rev = "52cba5e27a3dd5f00c780f53e423302b4b5f9c9c" }
+nyx-core = { git = "https://github.com/design-nexus/nyx-core.git", rev = "4378e243aeb09733843996663cd9a5a7f0cbb821" }
 nyx-theme = { git = "https://github.com/design-nexus/nyx-design.git", rev = "40db521bab468d54f18f65c6aabd7fc8533d6a4d" }
 nyx-ui = { git = "https://github.com/design-nexus/nyx-design.git", rev = "40db521bab468d54f18f65c6aabd7fc8533d6a4d" }
 serde = { version = "1.0.229", features = ["derive"] }
