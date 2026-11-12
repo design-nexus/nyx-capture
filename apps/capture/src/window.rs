@@ -1176,10 +1176,19 @@ fn prune_history() {
         return;
     }
     let days = prefs::get().retention_days;
+    remove_history(move |db| db.prune(days));
+}
+
+/// Forget every unstarred screenshot and the text read from it.
+pub fn clear_history() {
+    remove_history(|db| db.clear());
+}
+
+fn remove_history(remove: impl FnOnce(&store::Db) -> anyhow::Result<Vec<std::path::PathBuf>> + Send + 'static) {
     crate::cmd::background(
         move || {
             let db = store::open(&paths::library_db())?;
-            db.prune(days)
+            remove(&db)
         },
         |result| match result {
             Ok(gone) if !gone.is_empty() => {

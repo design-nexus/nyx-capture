@@ -170,6 +170,10 @@ fn history_group(page: &Page) {
             }
         },
     ));
+    let clear = gtk::Button::with_label("Clear");
+    clear.set_valign(gtk::Align::Center);
+    clear.connect_clicked(|_| window::clear_history());
+    group.add(&widgets::row("Clear history", "Remove every capture and the text read from it, except starred ones.", Some(clear.upcast_ref())));
 }
 
 fn privacy_group(page: &Page) {

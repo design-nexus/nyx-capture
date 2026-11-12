@@ -309,7 +309,15 @@ impl Db {
         if days <= 0 {
             return Ok(Vec::new());
         }
-        let cutoff = now_secs() - days * 86400;
+        self.remove_before(now_secs() - days * 86400)
+    }
+
+    /// Remove every unstarred screenshot and its text, whatever its age.
+    pub fn clear(&self) -> Result<Vec<PathBuf>> {
+        self.remove_before(i64::MAX)
+    }
+
+    fn remove_before(&self, cutoff: i64) -> Result<Vec<PathBuf>> {
         let mut stmt = self
             .conn
             .prepare("SELECT id, path, thumb_path FROM captures WHERE starred=0 AND kind='screenshot' AND created_at < ?1")?;

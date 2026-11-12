@@ -69,10 +69,11 @@ impl Default for Prefs {
             file_name: "screenshot-{date}_{time}-{app}".into(),
             save_dir: String::new(),
             history: true,
-            retention_days: 90,
+            retention_days: 30,
             ocr_mode: "automatic".into(),
             ocr_langs: "eng".into(),
-            ocr_on_capture: true,
+            // Text in screenshots (passwords, chats) is read only when asked for.
+            ocr_on_capture: false,
             ocr_keep_lines: true,
             ocr_review: false,
             qr_open_links: false,
