@@ -17,6 +17,18 @@ pub fn build(page: &Page) {
     record_group(page);
 }
 
+/// What a screenshot can do once it's taken: Settings → Capture and the Capture page.
+pub fn after_choices(tools: &Tools) -> Vec<(&'static str, &'static str)> {
+    let mut after = vec![("edit", "Edit"), ("pin", "Pin")];
+    if tools.wl_copy {
+        after.insert(0, ("copy", "Copy"));
+        after.insert(0, ("quick", "Copy and save"));
+    } else {
+        after.insert(0, ("save", "Save"));
+    }
+    after
+}
+
 fn capture_group(page: &Page) {
     let group = page.group("Capture");
     let prefs = prefs::get();
@@ -35,22 +47,21 @@ fn capture_group(page: &Page) {
             ("colour", "Colour"),
         ]),
         &prefs.capture_start,
-        |v| prefs::update(|p| p.capture_start = v),
+        |v| {
+            prefs::update(|p| p.capture_start = v);
+            crate::home::refresh_options();
+        },
     );
     group.add(&row);
-    let mut after = vec![("edit", "Edit"), ("pin", "Pin")];
-    if tools.wl_copy {
-        after.insert(0, ("copy", "Copy"));
-        after.insert(0, ("quick", "Copy and save"));
-    } else {
-        after.insert(0, ("save", "Save"));
-    }
     group.add(&widgets::segmented_row(
         "After a screenshot",
         "What happens once you've chosen.",
-        widgets::opts(&after),
+        widgets::opts(&after_choices(&tools)),
         &prefs.after_capture,
-        |v| prefs::update(|p| p.after_capture = v),
+        |v| {
+            prefs::update(|p| p.after_capture = v);
+            crate::home::refresh_options();
+        },
     ));
     let (row, _) = widgets::switch_row(
         "Shot card",

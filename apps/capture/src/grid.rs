@@ -84,7 +84,7 @@ pub fn lines(rows: &[CaptureRow], cols: usize, day_of: impl Fn(i64) -> String) -
 }
 
 /// "Today", "Yesterday", a weekday in the last week, then the date.
-fn day_label(created: i64) -> String {
+pub(crate) fn day_label(created: i64) -> String {
     let (Ok(now), Ok(at)) = (glib::DateTime::now_local(), glib::DateTime::from_unix_local(created)) else {
         return String::new();
     };
@@ -528,7 +528,8 @@ fn selection_changed() {
 
 // ----- Thumbnails -----
 
-fn fill_picture(picture: &gtk::Picture, id: &str, path: &std::path::Path) {
+/// A capture's thumbnail in `picture`, whose parent is named after the capture.
+pub(crate) fn fill_picture(picture: &gtk::Picture, id: &str, path: &std::path::Path) {
     if let Some(tex) = TEXTURES.with(|c| c.borrow_mut().get(id)) {
         picture.set_paintable(Some(&tex));
         return;

@@ -17,6 +17,10 @@ pub struct Prefs {
     /// What the capture bar starts on: `smart`, `window`, `screen`, `scroll`, `record`,
     /// `text`, `qr` or `colour`.
     pub capture_start: String,
+    /// The capture bar opens with Edit after on.
+    pub capture_edit: bool,
+    /// The capture bar opens with the 3 s delay on.
+    pub capture_delay: bool,
     /// Show the shot card after a copy-and-save capture.
     pub shot_card: bool,
     /// Seconds the card stays; 0 keeps it until closed.
@@ -64,6 +68,8 @@ impl Default for Prefs {
             last_section: "recent".into(),
             after_capture: "quick".into(),
             capture_start: "smart".into(),
+            capture_edit: false,
+            capture_delay: false,
             shot_card: true,
             card_secs: 7,
             file_name: "screenshot-{date}_{time}-{app}".into(),

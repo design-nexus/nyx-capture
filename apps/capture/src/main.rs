@@ -5,6 +5,7 @@ mod cmd;
 mod control;
 mod editor;
 mod grid;
+mod home;
 mod naming;
 mod notice;
 mod ocr_view;
@@ -62,7 +63,8 @@ const USAGE: &str = "Usage: nyx-capture [OPTIONS]\n\
   --record --webcam   picture-in-picture camera (mpv WebcamOverlay)\n\
   FILE, --file FILE   open an image in the editor (not added to history)\n\
   --clipboard         open the image on the clipboard in the editor\n\
-  --section ID        open Recent, Starred, or settings\n\
+  --section ID        open capture (the modes), recent, screenshots, recordings,\n\
+                      starred, or settings\n\
   --toggle            close the window if it's open, otherwise open it\n";
 
 fn main() -> glib::ExitCode {

@@ -50,12 +50,177 @@ window.capture-window .app-header button.bar-button.suggested-action {
   background: alpha(@theme_accent, 0.14);
 }
 
-/* ---------- History ---------- */
+/* ---------- Capture page ---------- */
 
-.empty-hint {
-  color: @theme_dim_text;
-  padding: 24px;
+.capture-home {
+  padding: 14px 16px 24px;
 }
+
+.capture-home.narrow {
+  padding: 6px 6px 16px;
+}
+
+window.capture-window button.capture-mode {
+  padding: 16px 16px 18px;
+  border-radius: var(--nyx-radius-card);
+  background: @theme_card;
+  box-shadow: inset 0 0 0 1px alpha(@theme_text, 0.06);
+  color: @theme_text;
+}
+
+window.capture-window button.capture-mode:hover {
+  background: mix(@theme_card, @theme_text, 0.04);
+}
+
+/* The mode the Print key starts on. */
+window.capture-window button.capture-mode.start {
+  background: mix(@theme_card, @theme_accent, 0.12);
+  box-shadow: inset 0 0 0 1.5px alpha(@theme_accent, 0.6);
+}
+
+window.capture-window button.capture-mode:focus-visible {
+  outline: 2px solid alpha(@theme_accent, 0.6);
+  outline-offset: 2px;
+}
+
+.mode-tile {
+  min-width: 36px;
+  min-height: 36px;
+  border-radius: 10px;
+  background: alpha(@theme_accent, 0.15);
+  color: @theme_accent;
+}
+
+.mode-tile image {
+  -gtk-icon-size: 20px;
+}
+
+.capture-mode.record .mode-tile {
+  background: alpha(@theme_danger, 0.14);
+  color: @theme_danger;
+}
+
+.mode-key {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: @field;
+  box-shadow: inset 0 0 0 1px alpha(@theme_text, 0.08);
+  color: @theme_dim_text;
+}
+
+.mode-name {
+  color: @theme_text;
+  font-weight: 600;
+  font-size: 1.077em;
+}
+
+.mode-about {
+  color: @theme_dim_text;
+  font-size: 0.923em;
+  font-weight: 400;
+}
+
+.home-options {
+  margin: 16px 2px 0;
+}
+
+.home-option {
+  color: @theme_dim_text;
+}
+
+.home-option-label {
+  color: @theme_text_tertiary;
+}
+
+window.capture-window dropdown.home-after > button {
+  font-weight: 400;
+}
+
+.home-tip {
+  margin: 14px 0 4px;
+  padding: 10px 12px;
+  border-radius: var(--nyx-radius-card);
+  background: @field;
+  color: @theme_dim_text;
+  font-size: 0.923em;
+}
+
+.home-tip image {
+  -gtk-icon-size: 15px;
+}
+
+.home-section {
+  margin: 22px 2px 8px;
+}
+
+.home-section-title {
+  font-weight: 600;
+}
+
+window.capture-window button.home-link {
+  min-height: 24px;
+  padding: 0 4px;
+  background: transparent;
+  color: @theme_accent;
+  font-weight: 500;
+}
+
+window.capture-window button.home-link:hover {
+  background: @row_hover;
+}
+
+window.capture-window button.home-shot {
+  padding: 0;
+  border-radius: var(--nyx-radius-small);
+  background: transparent;
+  color: @theme_text;
+}
+
+window.capture-window button.home-shot:hover .home-shot-title {
+  color: @theme_accent;
+}
+
+.home-shot-picture {
+  border-radius: 8px;
+  background: @theme_card;
+  box-shadow: inset 0 0 0 1px alpha(@theme_text, 0.06);
+}
+
+.home-shot-badge {
+  min-width: 22px;
+  min-height: 22px;
+  margin: 6px;
+  border-radius: 999px;
+  /* Over the picture, whatever its colours: a dark disc. */
+  background: alpha(black, 0.55);
+  color: white;
+  -gtk-icon-size: 13px;
+}
+
+.home-shot-badge.star {
+  color: @theme_warning;
+}
+
+.home-shot-title {
+  margin-top: 7px;
+  color: @theme_text;
+  font-weight: 500;
+}
+
+.home-shot-meta {
+  color: @theme_text_tertiary;
+  font-size: 0.846em;
+  font-weight: 400;
+}
+
+.home-strip-note {
+  color: @theme_dim_text;
+  margin: 2px 2px 0;
+}
+
+/* ---------- History ---------- */
 
 .history-grid {
   padding: 0 12px 16px 12px;
@@ -195,61 +360,89 @@ window.capture-window.capture-card {
 
 /* ---------- Capture bar (on the overlay) ---------- */
 
-/* Raised over the dimmed still: a step lighter than the window. Every mode and option
-   is its own button a step darker than the bar, 2 px apart; the chosen mode is lit
-   like a Design 2.0 icon tile, its glow kept inside it. Built from the window and text
-   colours, since some themes' popover colour is darker than the window. */
+/* Raised over the dimmed still: a step lighter than the window. Every mode is named in
+   one segmented strip a step darker than the bar, the chosen one raised in it; Edit
+   after, the delay and the mode's own options are named toggles, lit in the accent
+   while on. Built from the window and text colours, since some themes' popover colour
+   is darker than the window. */
 .capture-bar {
   background: mix(@theme_bg, @theme_text, 0.06);
   color: @theme_text;
   border-radius: var(--nyx-radius-dialog);
-  padding: 5px 8px;
-  box-shadow: 0 12px 32px alpha(black, 0.55), 0 2px 6px alpha(black, 0.4);
+  padding: 6px;
+  box-shadow: 0 0 0 1px alpha(@theme_text, 0.07), 0 12px 32px alpha(black, 0.55), 0 2px 6px alpha(black, 0.4);
 }
 
-window.capture-window .capture-bar .segmented {
-  background: transparent;
-  padding: 0;
-}
-
-window.capture-window .capture-bar .segmented button.segment {
-  min-height: 32px;
-  padding: 0 11px;
+window.capture-window .capture-bar .segmented.capture-modes {
+  background: mix(@theme_bg, @theme_text, 0.015);
   border-radius: var(--nyx-radius-small);
+  padding: 3px;
+}
+
+window.capture-window .capture-bar .segmented.capture-modes button.segment {
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 6px;
   font-size: 12.5px;
-  background: mix(@theme_bg, @theme_text, 0.02);
-  color: mix(@theme_text, @theme_bg, 0.22);
+  font-weight: 500;
+  background: transparent;
+  color: mix(@theme_text, @theme_bg, 0.3);
+  box-shadow: none;
 }
 
-window.capture-window .capture-bar .segmented button.segment.icon-only {
-  min-width: 32px;
-  padding: 0;
+window.capture-window .capture-bar .segmented.capture-modes button.segment:hover {
+  background: mix(@theme_bg, @theme_text, 0.06);
+  color: @theme_text;
 }
 
-window.capture-window .capture-bar .segmented button.segment + button.segment {
-  margin-left: 2px;
+window.capture-window .capture-bar .segmented.capture-modes button.segment:checked {
+  background: mix(@theme_bg, @theme_text, 0.12);
+  color: @theme_text;
+  box-shadow: 0 1px 2px alpha(black, 0.35);
 }
 
-window.capture-window .capture-bar .segmented button.segment:hover {
+.capture-bar image {
+  -gtk-icon-size: 16px;
+}
+
+.capture-bar .capture-modes image {
+  -gtk-icon-size: 15px;
+}
+
+window.capture-window .capture-bar button.capture-option {
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: var(--nyx-radius-small);
+  background: transparent;
+  color: mix(@theme_text, @theme_bg, 0.3);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+window.capture-window .capture-bar button.capture-option image {
+  -gtk-icon-size: 14px;
+}
+
+window.capture-window .capture-bar button.capture-option:hover {
   background: mix(@theme_bg, @theme_text, 0.09);
   color: @theme_text;
 }
 
-window.capture-window .capture-bar .segmented button.segment:checked {
-  background-color: mix(@theme_bg, @theme_text, 0.09);
-  background-image:
-    radial-gradient(circle at 20% 10%, alpha(@theme_accent, 0.40), alpha(@theme_accent, 0) 80%),
-    linear-gradient(135deg, mix(@theme_bg, @theme_text, 0.09), mix(@theme_bg, black, 0.1));
-  color: @theme_text;
-  box-shadow: inset 0 0 10px alpha(@theme_accent, 0.28);
-}
-
-window.capture-window .capture-bar .segmented button.segment:checked image {
+window.capture-window .capture-bar button.capture-option:checked {
+  background: alpha(@theme_accent, 0.16);
   color: @theme_accent;
 }
 
-.capture-bar image {
-  -gtk-icon-size: 17px;
+/* The chosen mode's own options, a row under the modes. */
+.capture-bar-options {
+  padding: 6px 0 0;
+  border-top: 1px solid mix(@theme_bg, @theme_text, 0.12);
+}
+
+.capture-bar-label {
+  color: mix(@theme_text, @theme_bg, 0.45);
+  font-size: 12px;
+  margin: 0 4px 0 10px;
 }
 
 window.capture-window .capture-bar button.icon-button {

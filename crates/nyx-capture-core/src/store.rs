@@ -234,6 +234,11 @@ impl Db {
         }
     }
 
+    /// How many captures history holds.
+    pub fn count(&self) -> Result<i64> {
+        self.conn.query_row("SELECT COUNT(*) FROM captures", [], |r| r.get(0)).map_err(Into::into)
+    }
+
     pub fn set_starred(&self, id: &str, on: bool) -> Result<()> {
         self.conn.execute("UPDATE captures SET starred=?2 WHERE id=?1", params![id, on as i32])?;
         Ok(())
@@ -462,6 +467,7 @@ mod tests {
             })
             .unwrap();
         db.set_ocr(&id, "tesseract", "kernel panic on boot").unwrap();
+        assert_eq!(db.count().unwrap(), 1);
         let found = db.list(View::Recent, "kernel", 10).unwrap();
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].id, id);

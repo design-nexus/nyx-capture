@@ -25,6 +25,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 pub const SHORTCUTS: &[(&[&str], &str)] = &[
+    (&["1–8"], "A capture mode, on the Capture page"),
     (&["Ctrl", "Shift", "L"], "Scrolling capture"),
     (&["Ctrl", "N"], "Capture a region"),
     (&["Ctrl", "Shift", "N"], "Capture a window"),
@@ -43,15 +44,30 @@ pub const SHORTCUTS: &[(&[&str], &str)] = &[
     (&["Ctrl", "Q"], "Close"),
 ];
 
+/// The window's two pages: the Capture page (the modes) and History.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Tab {
+    Capture,
+    History,
+}
+
 struct Ui {
     window: gtk::ApplicationWindow,
     header: chrome::AppHeader,
     overlay: gtk::Overlay,
+    tab: Tab,
+    pages: gtk::Stack,
+    /// The header's Capture and History switch.
+    tabs: Vec<(Tab, gtk::ToggleButton)>,
+    collapse: gtk::Button,
     nav: gtk::Box,
     nav_list: gtk::Box,
     search: gtk::SearchEntry,
     status: gtk::Label,
     hint: gtk::Label,
+    empty: gtk::Box,
+    empty_title: gtk::Label,
+    empty_go: gtk::Button,
     scroller: gtk::Widget,
     selection: gtk::Box,
     selection_count: gtk::Label,
@@ -95,13 +111,55 @@ pub fn present(app: &gtk::Application, section: Option<&str>) {
     window.present();
     match section {
         Some("settings") => settings_dialog::open(),
-        Some(other) => navigate(view_from_section(other)),
-        None => {
-            let start = nyx_theme::start_page("recent", &prefs::get().last_section);
-            navigate(view_from_section(&start));
-        }
+        Some(other) => open_section(other),
+        None => open_section(&nyx_theme::start_page("capture", &prefs::get().last_section)),
     }
     maybe_tutorial();
+}
+
+/// `capture` is the Capture page; the rest are History's sections.
+fn open_section(section: &str) {
+    if section == "capture" {
+        show_capture_page();
+    } else {
+        navigate(view_from_section(section));
+    }
+}
+
+/// The Capture page: the modes, their options and the latest captures.
+pub fn show_capture_page() {
+    let Some(ui) = ui() else { return };
+    prefs::update(|p| p.last_section = "capture".into());
+    chrome::set_title(&ui.borrow().window, "Capture", "");
+    ui.borrow().header.set_subtitle("");
+    set_tab(Tab::Capture);
+}
+
+fn set_tab(tab: Tab) {
+    let Some(ui) = ui() else { return };
+    ui.borrow_mut().tab = tab;
+    // The switch's handler reads the window: let go of it first.
+    let button = ui.borrow().tabs.iter().find(|(t, _)| *t == tab).map(|(_, b)| b.clone());
+    if let Some(b) = button {
+        b.set_active(true);
+    }
+    let ui = ui.borrow();
+    let history = tab == Tab::History;
+    ui.pages.set_visible_child_name(if history { "history" } else { "capture" });
+    ui.nav.set_visible(history);
+    ui.collapse.set_visible(history);
+    let selected = history && crate::grid::has_selection();
+    ui.search.set_visible(history && !selected);
+    ui.selection.set_visible(selected);
+    drop(ui);
+    if !history {
+        crate::home::refresh_options();
+    }
+    refresh_status();
+}
+
+fn on_history() -> bool {
+    ui().is_some_and(|u| u.borrow().tab == Tab::History)
 }
 
 fn view_from_section(section: &str) -> View {
@@ -137,20 +195,21 @@ pub fn navigate(view: View) {
     prefs::update(|p| p.last_section = section_id(view).into());
     chrome::set_title(&ui.borrow().window, "Capture", page_name(view));
     ui.borrow().header.set_subtitle(page_name(view));
+    set_tab(Tab::History);
     reload();
     rebuild_nav();
 }
 
 pub fn reload() {
     let Some(ui) = ui() else { return };
+    crate::home::refresh_recent(&PENDING.with(|p| p.borrow().clone()));
     let view = ui.borrow().view;
     let query = ui.borrow().search.text().to_string();
     if !prefs::get().history {
         ui.borrow_mut().items.clear();
         crate::grid::fill(&[]);
         ui.borrow().scroller.set_visible(false);
-        ui.borrow().hint.set_visible(true);
-        ui.borrow().hint.set_text("History is off. New shots still copy or save when you ask.");
+        show_empty(&ui.borrow(), "History is off", "New shots still copy or save when you ask.", false);
         refresh_status();
         return;
     }
@@ -164,21 +223,34 @@ pub fn reload() {
             crate::grid::fill(&items);
             ui.borrow_mut().items = items;
             ui.borrow().scroller.set_visible(!empty);
-            ui.borrow().hint.set_visible(empty);
-            ui.borrow().hint.set_text(if empty { empty_copy(view) } else { "" });
+            if empty {
+                let searching = !query.trim().is_empty();
+                let (title, desc) = if searching { ("Nothing found", "No capture, or text read from one, matches that.") } else { empty_copy(view) };
+                show_empty(&ui.borrow(), title, desc, !searching && view != View::Starred);
+            } else {
+                ui.borrow().empty.set_visible(false);
+            }
             refresh_status();
         }
         Err(err) => toast(&err.to_string()),
     }
 }
 
-fn empty_copy(view: View) -> &'static str {
+fn empty_copy(view: View) -> (&'static str, &'static str) {
     match view {
-        View::Recordings => "No recordings yet. Ctrl+R records the focused monitor.",
-        View::Starred => "Star a capture from the grid.",
-        View::Screenshots => "No screenshots yet. Ctrl+N grabs a region.",
-        View::Recent => "No captures yet. Ctrl+N grabs a region.",
+        View::Recordings => ("No recordings yet", "Record from the Capture page, or press Ctrl+R."),
+        View::Starred => ("Nothing starred yet", "Star a capture from the grid to keep it however old it gets."),
+        View::Screenshots => ("No screenshots yet", "Pick a mode on the Capture page, or press Print anywhere."),
+        View::Recent => ("No captures yet", "Pick a mode on the Capture page, or press Print anywhere."),
     }
+}
+
+/// History's empty state, with a way to the Capture page when there's nothing yet.
+fn show_empty(ui: &Ui, title: &str, desc: &str, go: bool) {
+    ui.empty_title.set_text(title);
+    ui.hint.set_text(desc);
+    ui.empty_go.set_visible(go);
+    ui.empty.set_visible(true);
 }
 
 pub fn search(query: &str) -> anyhow::Result<Value> {
@@ -290,7 +362,10 @@ pub fn export_id(id: &str, dest: &std::path::Path) -> anyhow::Result<Value> {
 fn refresh_status() {
     let Some(ui) = ui() else { return };
     let count = ui.borrow().items.len();
-    let mut text = if !prefs::get().history {
+    // The Capture page says how many there are under Recent; only a recording here.
+    let mut text = if ui.borrow().tab == Tab::Capture {
+        String::new()
+    } else if !prefs::get().history {
         "History off".into()
     } else if count == 0 {
         String::new()
@@ -300,11 +375,12 @@ fn refresh_status() {
         format!("{count} captures")
     };
     let selected = crate::grid::selected().len();
-    if selected > 0 {
+    if selected > 0 && ui.borrow().tab == Tab::History {
         text = format!("{text} · {selected} selected");
     }
     if let Some(session) = record::active() {
-        text = if session.paused { format!("Paused · {text}") } else { format!("Recording · {text}") };
+        let state = if session.paused { "Paused" } else { "Recording" };
+        text = if text.is_empty() { state.into() } else { format!("{state} · {text}") };
     }
     ui.borrow().status.set_text(&text);
 }
@@ -377,12 +453,39 @@ fn build(app: &gtk::Application) {
         .build();
     nav.append(&nav_scroll);
 
-    // The app and the page, the sidebar toggle; search (or the selection) in the
-    // middle; what's going on, the capture actions and Settings at the end.
+    // The app and History's section, its sidebar toggle; the Capture and History
+    // switch in the middle, with History's search (or the selection); what's going on,
+    // a recording's controls and Settings at the end.
     let header = chrome::app_header(&window, "capture-region-symbolic", "Capture");
     let collapse = widgets::bar_button("sidebar-show-symbolic", "Collapse sidebar (Ctrl+B)");
     collapse.connect_clicked(|_| toggle_sidebar());
     header.start.append(&collapse);
+
+    let switch = widgets::segmented(&widgets::opts(&[("capture", "Capture"), ("history", "History")]), "capture", |id| {
+        let tab = if id == "history" { Tab::History } else { Tab::Capture };
+        let now = ui().map(|u| u.borrow().tab);
+        if now == Some(tab) {
+            return;
+        }
+        match tab {
+            Tab::History => {
+                let view = ui().map(|u| u.borrow().view).unwrap_or(View::Recent);
+                navigate(view);
+            }
+            Tab::Capture => show_capture_page(),
+        }
+    });
+    switch.add_css_class("view-switch");
+    let mut tabs = Vec::new();
+    let mut child = switch.first_child();
+    for tab in [Tab::Capture, Tab::History] {
+        let Some(c) = child else { break };
+        if let Ok(b) = c.clone().downcast::<gtk::ToggleButton>() {
+            tabs.push((tab, b));
+        }
+        child = c.next_sibling();
+    }
+    header.center.append(&switch);
 
     let search = gtk::SearchEntry::new();
     search.set_placeholder_text(Some("Search captures (Ctrl+F)"));
@@ -394,36 +497,42 @@ fn build(app: &gtk::Application) {
     search.connect_stop_search(|entry| entry.set_text(""));
     header.center.append(&search);
 
-    let hint = widgets::label("No captures yet. Ctrl+N grabs a region.", "empty-hint");
+    let empty = widgets::vbox(8);
+    empty.add_css_class("empty-state");
+    empty.set_valign(gtk::Align::Center);
+    empty.set_halign(gtk::Align::Center);
+    empty.set_vexpand(true);
+    let empty_icon = gtk::Image::from_icon_name("capture-region-symbolic");
+    empty_icon.set_pixel_size(48);
+    empty_icon.add_css_class("dim");
+    empty.append(&empty_icon);
+    let empty_title = widgets::label("No captures yet", "empty-title");
+    empty_title.set_xalign(0.5);
+    empty.append(&empty_title);
+    let hint = widgets::label("", "dim");
+    hint.set_xalign(0.5);
     hint.set_wrap(true);
     hint.set_justify(gtk::Justification::Center);
-    hint.set_valign(gtk::Align::Center);
-    hint.set_vexpand(true);
+    hint.set_max_width_chars(52);
+    empty.append(&hint);
+    let empty_go = gtk::Button::with_label("Take a capture");
+    empty_go.add_css_class("suggested-action");
+    empty_go.set_halign(gtk::Align::Center);
+    empty_go.set_margin_top(8);
+    empty_go.connect_clicked(|_| show_capture_page());
+    empty.append(&empty_go);
+    empty.set_visible(false);
 
     let scroller = crate::grid::build();
 
+    // The capture modes are on the Capture page; the header keeps a recording's Stop
+    // and Pause while one runs, and the webcam overlay's switch.
     let toolbar = gtk::Box::new(gtk::Orientation::Horizontal, 2);
     let tools = nyx_capture_core::detect::Tools::probe();
-    if tools.grim {
-        let region = widgets::bar_button("capture-region-symbolic", "Capture a region (Ctrl+N)");
-        region.connect_clicked(|_| capture_now(CaptureMode::SelectRegion));
-        toolbar.append(&region);
-        if tools.hyprctl {
-            let window_btn = widgets::bar_button("focus-windows-symbolic", "Capture a window (Ctrl+Shift+N)");
-            window_btn.connect_clicked(|_| capture_now(CaptureMode::SelectWindow));
-            toolbar.append(&window_btn);
-        }
-        let screen = widgets::bar_button("video-display-symbolic", "Capture the screen (Ctrl+Shift+F)");
-        screen.connect_clicked(|_| capture_now(CaptureMode::FullDesktop));
-        toolbar.append(&screen);
-        if tools.can_scroll() {
-            let scroll = widgets::bar_button("view-continuous-symbolic", "Scrolling capture (Ctrl+Shift+L)");
-            scroll.connect_clicked(|_| start_scroll());
-            toolbar.append(&scroll);
-        }
-    }
     if tools.can_record() {
-        let rec = widgets::bar_button("media-record-symbolic", "Start recording (Ctrl+R)");
+        let rec = widgets::bar_button("media-playback-stop-symbolic", "Stop recording (Ctrl+R)");
+        rec.add_css_class("destructive-action");
+        rec.set_visible(false);
         rec.connect_clicked(|_| toggle_record(false));
         RECORD_BTN.with(|b| *b.borrow_mut() = Some(rec.clone()));
         toolbar.append(&rec);
@@ -474,12 +583,18 @@ fn build(app: &gtk::Application) {
     let content = gtk::Box::new(gtk::Orientation::Vertical, 0);
     content.add_css_class("settings-content");
     content.set_hexpand(true);
-    content.append(&hint);
+    content.append(&empty);
     content.append(&scroller);
+
+    let pages = gtk::Stack::new();
+    pages.set_hhomogeneous(false);
+    pages.set_vhomogeneous(false);
+    pages.add_named(&crate::home::build(), Some("capture"));
+    pages.add_named(&content, Some("history"));
 
     let frame = nyx_ui::frame::AppFrame::new(&header.root);
     frame.set_sidebar(&nav);
-    frame.set_page(&content);
+    frame.set_page(&pages);
     let overlay = frame.install(&window);
     install_keys(&window, &search);
 
@@ -487,11 +602,18 @@ fn build(app: &gtk::Application) {
         window: window.clone(),
         header,
         overlay: overlay.clone(),
+        tab: Tab::Capture,
+        pages,
+        tabs,
+        collapse,
         nav: nav.clone(),
         nav_list: list,
         search,
         status,
         hint,
+        empty,
+        empty_title,
+        empty_go,
         scroller,
         selection,
         selection_count,
@@ -517,11 +639,13 @@ fn build(app: &gtk::Application) {
             nav.add_css_class("sized");
             NARROW.with(|n| n.set(narrow));
             apply_compact(&nav, narrow || prefs::get().sidebar_collapsed);
+            crate::home::set_narrow(narrow);
             if let Some(ui) = self::ui() {
                 let ui = ui.borrow();
-                // The centred search mustn't reach the sidebar toggle or the actions.
+                // The centred switch and search mustn't reach the app's name or the actions.
                 ui.search.set_max_width_chars(if narrow { SEARCH_NARROW } else { SEARCH_WIDE });
                 ui.status.set_visible(!narrow);
+                set_app_name_visible(ui.header.root.upcast_ref(), !narrow);
             }
         }
     };
@@ -541,7 +665,59 @@ fn build(app: &gtk::Application) {
     prune_history();
 }
 
-/// The window's capture buttons (and the Assistant's): the capture bar on that mode,
+/// The header's app name, hidden under 980 px like the sidebar's labels; the icon stays.
+fn set_app_name_visible(widget: &gtk::Widget, visible: bool) {
+    if widget.has_css_class("app-title") {
+        widget.set_visible(visible);
+        return;
+    }
+    let mut child = widget.first_child();
+    while let Some(c) = child {
+        set_app_name_visible(&c, visible);
+        child = c.next_sibling();
+    }
+}
+
+/// A card on the Capture page, or its number key: the capture bar on that mode, as the
+/// Print key opens it; without the overlay, the nearest capture that runs without it.
+pub fn start_mode(mode: crate::overlay::Mode) {
+    use crate::overlay::Mode;
+    let app = gio::Application::default().and_then(|a| a.downcast::<gtk::Application>().ok());
+    let bar = crate::overlay::prefer() && crate::overlay::supported();
+    // The portal takes its own screenshots, so shots skip the bar's frozen still.
+    let portal = nyx_capture_core::capture::pick(&prefs::get().backend) == "portal";
+    match mode {
+        Mode::Record => {
+            toggle_record(false);
+            return;
+        }
+        Mode::Scroll => {
+            start_scroll();
+            return;
+        }
+        Mode::Smart | Mode::Window | Mode::Screen if portal => {}
+        _ if bar => {
+            if let Some(app) = &app {
+                capture_with_bar(app, mode);
+            }
+            return;
+        }
+        _ => {}
+    }
+    let p = prefs::get();
+    let after = if p.capture_edit { After::Edit } else { after_from_prefs() };
+    let delay = if p.capture_delay { 3 } else { 0 };
+    match mode {
+        Mode::Window => capture_with(CaptureMode::SelectWindow, after, delay),
+        Mode::Screen => capture_with(CaptureMode::FullDesktop, after, delay),
+        Mode::Text => capture_with(CaptureMode::SelectRegion, After::Ocr, delay),
+        Mode::Qr => capture_with(CaptureMode::SelectRegion, After::Qr, 0),
+        Mode::Colour => toast("Picking a colour needs the capture overlay"),
+        _ => capture_with(CaptureMode::SelectRegion, after, delay),
+    }
+}
+
+/// The window's capture keys (and the Assistant's): the capture bar on that mode,
 /// as the Print key opens it, where the overlay can run.
 pub fn capture_now(mode: CaptureMode) {
     let start = match mode {
@@ -1416,18 +1592,13 @@ pub(crate) fn refresh_record_button() {
         remember_recording(&path);
         toast(&format!("The recording ended; saved {}", path.display()));
     }
+    let recording = record::active().is_some();
     RECORD_BTN.with(|b| {
-        let Some(btn) = b.borrow().clone() else { return };
-        if record::active().is_some() {
-            btn.set_icon_name("media-playback-stop-symbolic");
-            btn.set_tooltip_text(Some("Stop recording (Ctrl+R)"));
-            btn.add_css_class("destructive-action");
-        } else {
-            btn.set_icon_name("media-record-symbolic");
-            btn.set_tooltip_text(Some("Start recording (Ctrl+R)"));
-            btn.remove_css_class("destructive-action");
+        if let Some(btn) = b.borrow().as_ref() {
+            btn.set_visible(recording);
         }
     });
+    crate::home::set_recording(recording);
     PAUSE_BTN.with(|b| {
         let Some(btn) = b.borrow().clone() else { return };
         let session = record::active();
@@ -1743,8 +1914,9 @@ pub fn flush_deletes() {
 pub fn selection_changed() {
     let Some(ui) = ui() else { return };
     let n = crate::grid::selected().len();
-    ui.borrow().selection.set_visible(n > 0);
-    ui.borrow().search.set_visible(n == 0);
+    let history = ui.borrow().tab == Tab::History;
+    ui.borrow().selection.set_visible(history && n > 0);
+    ui.borrow().search.set_visible(history && n == 0);
     ui.borrow().selection_count.set_text(&format!("{n} selected"));
     refresh_status();
 }
@@ -1809,6 +1981,10 @@ fn install_keys(window: &gtk::ApplicationWindow, search: &gtk::SearchEntry) {
         let ctrl = mods.contains(gdk::ModifierType::CONTROL_MASK);
         let shift = mods.contains(gdk::ModifierType::SHIFT_MASK);
         if ctrl && key == gdk::Key::f {
+            if !on_history() {
+                let view = ui().map(|u| u.borrow().view).unwrap_or(View::Recent);
+                navigate(view);
+            }
             search.grab_focus();
             return glib::Propagation::Stop;
         }
@@ -1846,6 +2022,14 @@ fn install_keys(window: &gtk::ApplicationWindow, search: &gtk::SearchEntry) {
             return glib::Propagation::Stop;
         }
         if typing(win.upcast_ref()) {
+            return glib::Propagation::Proceed;
+        }
+        let plain = !mods.intersects(gdk::ModifierType::CONTROL_MASK | gdk::ModifierType::ALT_MASK | gdk::ModifierType::SUPER_MASK);
+        if !on_history() {
+            if plain && let Some(mode) = crate::home::mode_for_key(key) {
+                start_mode(mode);
+                return glib::Propagation::Stop;
+            }
             return glib::Propagation::Proceed;
         }
         if ctrl && key == gdk::Key::a {

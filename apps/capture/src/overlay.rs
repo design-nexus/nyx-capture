@@ -40,19 +40,68 @@ pub enum Mode {
     Colour,
 }
 
-/// The bar's segments: icon, label (None shows the icon alone) and tooltip.
-const MODES: &[(Mode, &str, Option<&str>, &str)] = &[
-    (Mode::Smart, "capture-mode-smart-symbolic", Some("Smart"), "Smart capture (1)"),
-    (Mode::Window, "capture-mode-window-symbolic", Some("Window"), "Capture a window (2)"),
-    (Mode::Screen, "capture-mode-screen-symbolic", Some("Screen"), "Capture the screen (3)"),
-    (Mode::Scroll, "capture-mode-scroll-symbolic", None, "Scrolling capture (4)"),
-    (Mode::Record, "capture-mode-record-symbolic", None, "Record the screen (5)"),
-    (Mode::Text, "capture-text-symbolic", None, "Capture text (6)"),
-    (Mode::Qr, "capture-mode-qr-symbolic", None, "Scan a QR code (7)"),
-    (Mode::Colour, "capture-mode-colour-symbolic", None, "Pick a colour (8)"),
-];
-
 impl Mode {
+    /// Every mode, in the bar's order; the number keys follow it.
+    pub const ALL: [Mode; 8] = [Mode::Smart, Mode::Window, Mode::Screen, Mode::Scroll, Mode::Record, Mode::Text, Mode::Qr, Mode::Colour];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Mode::Smart => "Smart",
+            Mode::Window => "Window",
+            Mode::Screen => "Screen",
+            Mode::Scroll => "Scroll",
+            Mode::Record => "Record",
+            Mode::Text => "Text",
+            Mode::Qr => "QR code",
+            Mode::Colour => "Colour",
+        }
+    }
+
+    pub fn icon(self) -> &'static str {
+        match self {
+            Mode::Smart => "capture-mode-smart-symbolic",
+            Mode::Window => "capture-mode-window-symbolic",
+            Mode::Screen => "capture-mode-screen-symbolic",
+            Mode::Scroll => "capture-mode-scroll-symbolic",
+            Mode::Record => "capture-mode-record-symbolic",
+            Mode::Text => "capture-text-symbolic",
+            Mode::Qr => "capture-mode-qr-symbolic",
+            Mode::Colour => "capture-mode-colour-symbolic",
+        }
+    }
+
+    /// The number key that picks it on the bar and on the Capture page.
+    pub fn key(self) -> u32 {
+        Mode::ALL.iter().position(|m| *m == self).unwrap_or(0) as u32 + 1
+    }
+
+    /// One line on what it captures, for the Capture page.
+    pub fn about(self) -> &'static str {
+        match self {
+            Mode::Smart => "Drag an area, click a window, or click empty space for the screen",
+            Mode::Window => "Click a window",
+            Mode::Screen => "The screen you're on",
+            Mode::Scroll => "A long page, stitched as you scroll",
+            Mode::Record => "A video of an area, a window or the screen",
+            Mode::Text => "Copy the text in an area",
+            Mode::Qr => "Read a code on screen",
+            Mode::Colour => "Copy the colour of a pixel",
+        }
+    }
+
+    fn tooltip(self) -> &'static str {
+        match self {
+            Mode::Smart => "Smart capture (1)",
+            Mode::Window => "Capture a window (2)",
+            Mode::Screen => "Capture the screen (3)",
+            Mode::Scroll => "Scrolling capture (4)",
+            Mode::Record => "Record the screen (5)",
+            Mode::Text => "Capture text (6)",
+            Mode::Qr => "Scan a QR code (7)",
+            Mode::Colour => "Pick a colour (8)",
+        }
+    }
+
     pub fn parse(s: &str) -> Mode {
         match s {
             "window" => Mode::Window,
@@ -68,14 +117,14 @@ impl Mode {
 
     fn hint(self) -> &'static str {
         match self {
-            Mode::Smart => "Drag to select an area, or click a window or empty space for the screen",
+            Mode::Smart => "Drag an area, or click a window",
             Mode::Window => "Click a window",
-            Mode::Screen => "Click or press Enter to capture the screen",
+            Mode::Screen => "Click, or press Enter, for the screen",
             Mode::Scroll => "Drag over the area to scroll, or click a window",
-            Mode::Record => "Drag to select an area, or click a window or empty space for the screen",
-            Mode::Text => "Drag over the text, or click a window or empty space for the screen",
+            Mode::Record => "Drag an area, or click a window or the screen",
+            Mode::Text => "Drag over the text, or click a window",
             Mode::Qr => "Click a highlighted code, or drag over one",
-            Mode::Colour => "Click to copy the colour · Shift+click to pick another",
+            Mode::Colour => "Click to copy the colour · Shift+click for another",
         }
     }
 
@@ -164,8 +213,12 @@ struct Target {
 
 struct Bar {
     modes: Vec<(Mode, gtk::ToggleButton)>,
+    /// Before Edit after and the delay, while either is shown.
+    shot_sep: gtk::Separator,
     edit: gtk::ToggleButton,
     delay: gtk::ToggleButton,
+    /// The second row: the chosen mode's own options (Text, QR code, Colour, Record).
+    options: gtk::Box,
     /// Text mode: keep line breaks, review first, and the language.
     text: gtk::Box,
     keep_lines: gtk::ToggleButton,
@@ -187,6 +240,8 @@ impl Bar {
         let shot = matches!(mode, Mode::Smart | Mode::Window | Mode::Screen);
         self.edit.set_visible(shot || mode == Mode::Scroll);
         self.delay.set_visible(shot || mode == Mode::Text);
+        self.shot_sep.set_visible(self.edit.is_visible() || self.delay.is_visible());
+        self.options.set_visible(matches!(mode, Mode::Text | Mode::Qr | Mode::Colour | Mode::Record));
         self.text.set_visible(mode == Mode::Text);
         self.qr.set_visible(mode == Mode::Qr);
         self.colour.set_visible(mode == Mode::Colour);
@@ -549,7 +604,7 @@ fn open(still: Shot, mode: Mode, with_bar: bool, on_pick: Box<dyn FnOnce(Option<
         still,
         surface,
         mode,
-        extras: Extras::default(),
+        extras: if with_bar { Extras { edit: prefs::get().capture_edit, delay: prefs::get().capture_delay } } else { Extras::default() },
         dragging: false,
         origin: None,
         current: None,
@@ -688,34 +743,33 @@ fn test_pointer() -> Option<(i32, i32)> {
     Some((mon.x + x.trim().parse::<i32>().ok()?, mon.y + y.trim().parse::<i32>().ok()?))
 }
 
-/// The capture bar: the modes, each mode's options, and the hint.
+/// The capture bar: every mode by name, Edit after and the delay, and the hint; the
+/// chosen mode's own options on a second row under them.
 fn build_bar(session: &Rc<RefCell<Session>>) -> (gtk::Box, Bar) {
-    let bar = gtk::Box::new(gtk::Orientation::Horizontal, 2);
+    let bar = gtk::Box::new(gtk::Orientation::Vertical, 6);
     bar.add_css_class("capture-bar");
     bar.set_halign(gtk::Align::Center);
     bar.set_valign(gtk::Align::End);
     bar.set_margin_bottom(22);
+    let main = gtk::Box::new(gtk::Orientation::Horizontal, 2);
+    bar.append(&main);
 
     let seg = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     seg.add_css_class("segmented");
+    seg.add_css_class("capture-modes");
     let mode = session.borrow().mode;
     let mut modes = Vec::new();
     let mut first: Option<gtk::ToggleButton> = None;
-    for &(m, icon, label, tip) in MODES {
+    for m in Mode::ALL {
         let content = gtk::Box::new(gtk::Orientation::Horizontal, 6);
         content.set_halign(gtk::Align::Center);
         content.set_valign(gtk::Align::Center);
-        content.append(&gtk::Image::from_icon_name(icon));
-        if let Some(label) = label {
-            content.append(&gtk::Label::new(Some(label)));
-        }
+        content.append(&gtk::Image::from_icon_name(m.icon()));
+        content.append(&gtk::Label::new(Some(m.label())));
         let b = gtk::ToggleButton::new();
         b.set_child(Some(&content));
         b.add_css_class("segment");
-        if label.is_none() {
-            b.add_css_class("icon-only");
-        }
-        b.set_tooltip_text(Some(tip));
+        b.set_tooltip_text(Some(m.tooltip()));
         b.set_focus_on_click(false);
         b.set_can_focus(false);
         if let Some(f) = &first {
@@ -733,51 +787,73 @@ fn build_bar(session: &Rc<RefCell<Session>>) -> (gtk::Box, Bar) {
         seg.append(&b);
         modes.push((m, b));
     }
-    bar.append(&seg);
-    bar.append(&separator());
+    main.append(&seg);
+    let shot_sep = separator();
+    main.append(&shot_sep);
 
-    let toggle = |icon: &str, tip: &str, set: fn(&mut Extras, bool)| {
-        let b = option_toggle(icon, tip, false);
+    let extras = session.borrow().extras;
+    let toggle = |icon: &str, label: &str, tip: &str, on: bool, set: fn(&mut Extras, bool)| {
+        let b = option_toggle(icon, label, tip, on);
         let s = session.clone();
         b.connect_toggled(move |b| set(&mut s.borrow_mut().extras, b.is_active()));
-        bar.append(&b);
+        main.append(&b);
         b
     };
-    let edit = toggle("capture-edit-symbolic", "Edit after capture (E)", |x, on| x.edit = on);
-    let delay = toggle("capture-timer-symbolic", "Delay 3 seconds (D)", |x, on| x.delay = on);
-    let (text, keep_lines, review) = text_options();
-    bar.append(&text);
-    let (qr, open_links) = qr_options();
-    bar.append(&qr);
-    let (colour, format) = colour_options(session);
-    bar.append(&colour);
-    let record = record_options();
-    bar.append(&record);
-    bar.append(&separator());
+    let edit = toggle("capture-edit-symbolic", "Edit after", "Edit after capture (E)", extras.edit, |x, on| x.edit = on);
+    let delay = toggle("capture-timer-symbolic", "3 s delay", "Wait 3 seconds before the shot (D)", extras.delay, |x, on| x.delay = on);
+    main.append(&separator());
 
     let hint = gtk::Label::new(Some(mode.hint()));
     hint.add_css_class("capture-bar-hint");
-    bar.append(&hint);
+    hint.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    hint.set_max_width_chars(48);
+    hint.set_xalign(0.0);
+    hint.set_hexpand(true);
+    main.append(&hint);
     let esc = gtk::Label::new(Some("Esc"));
     esc.add_css_class("capture-kbd");
     esc.set_margin_end(4);
-    bar.append(&esc);
-    let parts = Bar { modes, edit, delay, text, keep_lines, review, qr, open_links, colour, format, record, hint };
+    main.append(&esc);
+
+    let options = gtk::Box::new(gtk::Orientation::Horizontal, 2);
+    options.add_css_class("capture-bar-options");
+    let (text, keep_lines, review) = text_options();
+    options.append(&text);
+    let (qr, open_links) = qr_options();
+    options.append(&qr);
+    let (colour, format) = colour_options(session);
+    options.append(&colour);
+    let record = record_options();
+    options.append(&record);
+    bar.append(&options);
+
+    let parts = Bar { modes, shot_sep, edit, delay, options, text, keep_lines, review, qr, open_links, colour, format, record, hint };
     parts.show_for(mode);
     (bar, parts)
 }
 
-/// An icon toggle on the bar that never takes focus.
-fn option_toggle(icon: &str, tip: &str, on: bool) -> gtk::ToggleButton {
+/// A named toggle on the bar that never takes focus.
+fn option_toggle(icon: &str, label: &str, tip: &str, on: bool) -> gtk::ToggleButton {
+    let content = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    content.set_valign(gtk::Align::Center);
+    content.append(&gtk::Image::from_icon_name(icon));
+    content.append(&gtk::Label::new(Some(label)));
     let b = gtk::ToggleButton::new();
-    b.set_icon_name(icon);
+    b.set_child(Some(&content));
     b.add_css_class("flat");
-    b.add_css_class("icon-button");
+    b.add_css_class("capture-option");
     b.set_tooltip_text(Some(tip));
     b.set_focus_on_click(false);
     b.set_can_focus(false);
     b.set_active(on);
     b
+}
+
+/// A dim name in front of a dropdown on the bar's second row.
+fn option_label(text: &str) -> gtk::Label {
+    let l = gtk::Label::new(Some(text));
+    l.add_css_class("capture-bar-label");
+    l
 }
 
 /// A dropdown on the bar, styled like Record's format.
@@ -797,10 +873,10 @@ fn option_dropdown(items: &[&str], selected: usize, tip: &str) -> gtk::DropDown 
 fn text_options() -> (gtk::Box, gtk::ToggleButton, gtk::ToggleButton) {
     let row = gtk::Box::new(gtk::Orientation::Horizontal, 2);
     let p = prefs::get();
-    let keep = option_toggle("capture-line-breaks-symbolic", "Keep line breaks (L)", p.ocr_keep_lines);
+    let keep = option_toggle("capture-line-breaks-symbolic", "Keep line breaks", "Keep line breaks (L)", p.ocr_keep_lines);
     keep.connect_toggled(|b| prefs::update(|p| p.ocr_keep_lines = b.is_active()));
     row.append(&keep);
-    let review = option_toggle("capture-review-symbolic", "Review text before copying (V)", p.ocr_review);
+    let review = option_toggle("capture-review-symbolic", "Review first", "Review text before copying (V)", p.ocr_review);
     review.connect_toggled(|b| prefs::update(|p| p.ocr_review = b.is_active()));
     row.append(&review);
     let mut langs = nyx_capture_core::ocr::tesseract_languages();
@@ -817,6 +893,7 @@ fn text_options() -> (gtk::Box, gtk::ToggleButton, gtk::ToggleButton) {
                 prefs::update(|p| p.ocr_langs = l);
             }
         });
+        row.append(&option_label("Language"));
         row.append(&lang);
     }
     (row, keep, review)
@@ -825,7 +902,7 @@ fn text_options() -> (gtk::Box, gtk::ToggleButton, gtk::ToggleButton) {
 /// QR mode's choice: open a link as well as copying it.
 fn qr_options() -> (gtk::Box, gtk::ToggleButton) {
     let row = gtk::Box::new(gtk::Orientation::Horizontal, 2);
-    let open = option_toggle("capture-link-symbolic", "Open links in the browser (L)", prefs::get().qr_open_links);
+    let open = option_toggle("capture-link-symbolic", "Open links", "Open links in the browser (L)", prefs::get().qr_open_links);
     open.connect_toggled(|b| prefs::update(|p| p.qr_open_links = b.is_active()));
     row.append(&open);
     (row, open)
@@ -847,6 +924,7 @@ fn colour_options(session: &Rc<RefCell<Session>>) -> (gtk::Box, gtk::DropDown) {
         prefs::update(|p| p.colour_format = f.id().to_string());
         redraw();
     });
+    row.append(&option_label("Copy as"));
     row.append(&format);
     (row, format)
 }
@@ -932,18 +1010,20 @@ fn record_options() -> gtk::Box {
     let p = prefs::get();
     let audio = p.record_audio.clone();
     let (desktop, mic) = (matches!(audio.as_str(), "desktop" | "both"), matches!(audio.as_str(), "mic" | "both"));
-    let option = |icon: &str, tip: &str, on: bool, set: fn(bool)| {
-        let b = option_toggle(icon, tip, on);
+    let option = |icon: &str, label: &str, tip: &str, on: bool, set: fn(bool)| {
+        let b = option_toggle(icon, label, tip, on);
         b.connect_toggled(move |b| set(b.is_active()));
         row.append(&b);
     };
-    option("capture-speaker-symbolic", "Record system audio", desktop, |on| set_audio(Some(on), None));
-    option("capture-mic-symbolic", "Record microphone", mic, |on| set_audio(None, Some(on)));
-    option("capture-pointer-symbolic", "Show pointer", p.record_cursor, |on| prefs::update(|p| p.record_cursor = on));
+    option("capture-speaker-symbolic", "System sound", "Record system audio", desktop, |on| set_audio(Some(on), None));
+    option("capture-mic-symbolic", "Microphone", "Record microphone", mic, |on| set_audio(None, Some(on)));
+    option("capture-pointer-symbolic", "Pointer", "Show the pointer", p.record_cursor, |on| prefs::update(|p| p.record_cursor = on));
     if nyx_capture_core::webcam::available() {
-        option("capture-cam-symbolic", "Show webcam", p.record_webcam, |on| prefs::update(|p| p.record_webcam = on));
+        option("capture-cam-symbolic", "Webcam", "Show the webcam", p.record_webcam, |on| prefs::update(|p| p.record_webcam = on));
     }
-    option("capture-timer-symbolic", "3-second countdown", p.record_delay > 0, |on| prefs::update(|p| p.record_delay = if on { 3 } else { 0 }));
+    option("capture-timer-symbolic", "3 s countdown", "Count down 3 seconds before recording", p.record_delay > 0, |on| {
+        prefs::update(|p| p.record_delay = if on { 3 } else { 0 })
+    });
     let selected = match p.record_container.as_str() {
         "webm" => 1,
         "gif" => 2,
@@ -954,6 +1034,7 @@ fn record_options() -> gtk::Box {
         let value = ["mp4", "webm", "gif"][d.selected().min(2) as usize];
         prefs::update(|p| p.record_container = value.to_string());
     });
+    row.append(&option_label("Format"));
     row.append(&format);
     row
 }
