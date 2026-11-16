@@ -1,0 +1,407 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Nyx Capture — one-key capture mockup</title>
+<style>
+  /* Follow Omarchy (current theme) mapped onto Nyx 2.0 tokens; the accent is the theme's (blue). */
+  :root {
+    --bg: #1e1e2e; --panel: #1e1e2e; --card: #24243a; --raised: #2d2d44; --popover: #282840;
+    --field: #232336; --text: #cdd6f4; --dim: #a6adc8; --tert: #7f849c; --border: #3a3a52;
+    --accent: #89b4fa; --on-accent: #1e1e2e; --track: #34344c;
+    --r-small: 7px; --r-card: 11px; --r-dialog: 15px;
+    --shadow: 0 12px 32px rgba(5,5,12,.55), 0 2px 6px rgba(5,5,12,.4);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #0c0c14; font: 13px/1.35 Inter, "Inter Variable", sans-serif; color: var(--text); }
+  .frame { position: relative; width: 1280px; height: 800px; overflow: hidden; background: #11111b; }
+  .caption { position: absolute; left: 0; right: 0; top: 0; height: 0; }
+
+  /* ---------- fake desktop ---------- */
+  .bar { position: absolute; left: 0; right: 0; top: 0; height: 26px; background: #181825; display: flex; align-items: center; padding: 0 12px; gap: 14px; font-size: 11.5px; color: var(--dim); }
+  .bar .ws { display: flex; gap: 10px; } .bar .ws b { color: var(--accent); font-weight: 600; }
+  .bar .clock { margin-left: auto; margin-right: auto; color: var(--text); }
+  .win { position: absolute; background: #1e1e2e; border-radius: 10px; border: 2px solid #313244; overflow: hidden; }
+  .win.active { border-color: #89b4fa; }
+  .browser { left: 10px; top: 36px; width: 790px; height: 754px; }
+  .term { left: 810px; top: 36px; width: 460px; height: 754px; background: #181825; }
+  .tabs { height: 36px; background: #181825; display: flex; align-items: center; gap: 8px; padding: 0 10px; }
+  .tab { height: 26px; padding: 0 12px; border-radius: 7px; background: #313244; color: var(--text); font-size: 12px; display: flex; align-items: center; }
+  .tab.dim { background: transparent; color: var(--tert); }
+  .url { height: 30px; margin: 6px 10px; border-radius: 7px; background: #11111b; color: var(--dim); font-size: 12px; display: flex; align-items: center; padding: 0 12px; }
+  .page { padding: 18px 28px; }
+  .page h1 { font-size: 22px; font-weight: 600; margin: 4px 0 6px; }
+  .page p { color: var(--dim); margin: 0 0 14px; }
+  .row { height: 34px; border-radius: 7px; background: #24243a; margin-bottom: 8px; display: flex; align-items: center; padding: 0 12px; gap: 10px; color: var(--dim); font-size: 12.5px; }
+  .row i { width: 14px; height: 14px; border-radius: 4px; background: #45475a; display: inline-block; }
+  .hero { height: 200px; border-radius: 11px; margin: 14px 0; background: linear-gradient(135deg, #313244, #45475a 55%, #585b70); position: relative; }
+  .hero::after { content: ""; position: absolute; left: 28px; bottom: 26px; width: 220px; height: 14px; border-radius: 4px; background: rgba(205,214,244,.45); box-shadow: 0 -24px 0 -2px rgba(205,214,244,.25); }
+  .term pre { margin: 0; padding: 14px 16px; font: 12px/1.6 "JetBrains Mono", monospace; color: #bac2de; white-space: pre-wrap; }
+  .term .g { color: #a6e3a1; } .term .b { color: #89b4fa; } .term .m { color: #f5c2e7; }
+
+  /* ---------- shared Nyx bits ---------- */
+  svg.i { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+  .ib { width: 32px; height: 32px; border-radius: var(--r-small); display: grid; place-items: center; color: var(--dim); }
+  .ib.hover { background: rgba(205,214,244,.07); color: var(--text); }
+  .ib.on { background: rgba(137,180,250,.16); color: var(--accent); }
+  .ib.primary { background: var(--accent); color: var(--on-accent); }
+  .seg { display: flex; background: var(--field); border-radius: var(--r-small); padding: 2px; gap: 2px; }
+  .seg span { height: 28px; padding: 0 11px; border-radius: 6px; display: flex; align-items: center; gap: 6px; color: var(--dim); font-size: 12.5px; }
+  .seg span.sel { background: var(--raised); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.35); }
+  .seg span.sel svg { color: var(--accent); }
+  kbd { font: 500 11px Inter, sans-serif; color: var(--dim); background: var(--field); border-radius: 5px; padding: 2px 6px; }
+  .tip { position: absolute; background: #11111b; color: var(--text); font-size: 12px; padding: 5px 9px; border-radius: var(--r-small); white-space: nowrap; box-shadow: var(--shadow); }
+  .tip kbd { margin-left: 6px; background: #24243a; }
+
+  /* ---------- frame 1: choosing ---------- */
+  .lit { position: absolute; border: 1.5px solid var(--accent); border-radius: 10px; box-shadow: 0 0 0 4000px rgba(9,9,16,.58); }
+  .chip { position: absolute; background: var(--popover); border-radius: var(--r-small); padding: 5px 9px; display: flex; gap: 8px; align-items: center; box-shadow: var(--shadow); font-size: 12px; }
+  .chip b { font-weight: 600; font-feature-settings: "tnum"; }
+  .chip span { color: var(--dim); }
+  .cross { position: absolute; width: 22px; height: 22px; }
+  .cross::before, .cross::after { content: ""; position: absolute; background: #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.6); }
+  .cross::before { left: 10px; top: 0; width: 2px; height: 22px; } .cross::after { top: 10px; left: 0; height: 2px; width: 22px; }
+  .loupe { position: absolute; width: 116px; height: 116px; border-radius: var(--r-card); overflow: hidden; box-shadow: var(--shadow); border: 1px solid var(--border);
+    background:
+      linear-gradient(#0000 0 0),
+      repeating-linear-gradient(0deg, rgba(0,0,0,.25) 0 1px, transparent 1px 9px),
+      repeating-linear-gradient(90deg, rgba(0,0,0,.25) 0 1px, transparent 1px 9px),
+      linear-gradient(90deg, #1e1e2e 0 46%, #313244 46% 100%); }
+  .loupe::after { content: ""; position: absolute; left: 53px; top: 53px; width: 9px; height: 9px; outline: 1.5px solid var(--accent); }
+  .loupe-read { position: absolute; font-size: 11.5px; color: var(--dim); font-feature-settings: "tnum"; }
+  .capbar { position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%); background: var(--popover); border-radius: var(--r-dialog); box-shadow: var(--shadow); padding: 8px; display: flex; align-items: center; gap: 6px; }
+  .capbar .sep { width: 1px; height: 20px; background: var(--border); margin: 0 4px; }
+  .capbar .hint { color: var(--tert); font-size: 11.5px; display: flex; gap: 10px; align-items: center; padding: 0 6px 0 4px; }
+
+  /* ---------- the capture bar, as the app draws it ----------
+     Colours are the app's own mixes of the Omarchy theme (bg #1e1e2e, text #cdd6f4,
+     accent #89b4fa), worked out here so the mockup matches the screen. */
+  .cb { position: absolute; left: 50%; transform: translateX(-50%); border-radius: var(--r-dialog); padding: 8px; display: flex; align-items: center; gap: 6px; box-shadow: var(--shadow); white-space: nowrap; }
+  .cb .modes { display: flex; border-radius: var(--r-small); padding: 2px; }
+  .cb .m { height: 28px; border-radius: 6px; display: flex; align-items: center; gap: 6px; font-size: 12.5px; }
+  .cb .m.lab { padding: 0 11px; } .cb .m.ico { padding: 0 8px; }
+  .cb .o { width: 32px; height: 32px; border-radius: var(--r-small); display: grid; place-items: center; }
+  .cb .dd { height: 32px; padding: 0 6px 0 11px; border-radius: var(--r-small); display: flex; align-items: center; gap: 4px; font-size: 12.5px; }
+  .cb .dd svg.i { width: 14px; height: 14px; }
+  .cb .s { width: 1px; height: 20px; margin: 0 4px; }
+  .cb .h { font-size: 11.5px; padding: 0 4px 0 6px; }
+  .cb kbd { margin-right: 4px; }
+
+  /* Today: the bar mix(bg, text, .06); the mode track darker (.03); options flat. */
+  .cb.now { background: #29293a; }
+  .cb.now .modes { background: #232334; gap: 2px; }
+  .cb.now .m { color: #a7aec8; }
+  .cb.now .m.sel { background: #2e2f40; color: #cdd6f4; box-shadow: 0 1px 3px rgba(0,0,0,.35); }
+  .cb.now .m.sel svg { color: #89b4fa; }
+  .cb.now .o { color: #a7aec8; }
+  .cb.now .o.hov { background: rgba(205,214,244,.07); color: #cdd6f4; }
+  .cb.now .o.on { background: rgba(137,180,250,.16); color: #89b4fa; }
+  .cb.now .dd { background: #232334; color: #cdd6f4; }
+  .cb.now .s { background: #3a3b4e; }
+  .cb.now .h { color: #7e839b; }
+  .cb.now kbd { background: #232334; color: #a7aec8; }
+
+  /* Proposed: each mode and option its own button, a step darker than the bar
+     (bg→text 2%), with a 2 px gap of bar between them instead of one strip, and a
+     slimmer bar (5 px above and below). */
+  .cb.v2 { background: #29293a; padding: 5px 8px; gap: 2px; }
+  .cb.v2 .modes { background: transparent; gap: 2px; padding: 0; }
+  .cb.v2 .m { background: #212131; color: #a7aec8; }
+  /* Every mode as tall as the option buttons (32 px), icon-only ones square. */
+  .cb.v2 .m { height: 32px; }
+  .cb.v2 .m.ico { width: 32px; padding: 0; justify-content: center; }
+  /* The chosen mode like a Design 2.0 icon tile: a dark gradient, a soft accent glow
+     from the top-left, and a little light inside its edges (none spills out). */
+  .cb.v2 .m.sel {
+    background: radial-gradient(circle at 20% 10%, rgba(137,180,250,.40), rgba(137,180,250,0) 80%), linear-gradient(135deg, #2e2f40, #1b1b29);
+    color: #cdd6f4;
+    box-shadow: inset 0 0 10px rgba(137,180,250,.28);
+  }
+  .cb.v2 .m.sel svg { color: #89b4fa; }
+  .cb.v2 .o { background: #212131; color: #a7aec8; }
+  .cb.v2 .o.on { background: rgba(137,180,250,.16); color: #89b4fa; }
+  .cb.v2 .dd { background: #212131; color: #cdd6f4; }
+  .cb.v2 .s { background: #3a3b4e; margin: 0 7px; }
+  .cb.v2 .h { color: #7e839b; }
+  .cb.v2 kbd { background: #212131; color: #a7aec8; }
+
+
+  /* ---------- frames 2–3: the shot card ---------- */
+  .card { position: absolute; right: 16px; width: 300px; background: var(--popover); border-radius: var(--r-dialog); box-shadow: var(--shadow); padding: 10px; }
+  .thumb { height: 168px; border-radius: var(--r-card); overflow: hidden; position: relative; background: #1e1e2e; border: 1px solid rgba(205,214,244,.06); }
+  .thumb .mini { position: absolute; inset: 0; transform-origin: 0 0; }
+  .meta { display: flex; align-items: baseline; gap: 8px; padding: 9px 4px 2px; }
+  .meta .t { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .meta .s { margin-left: auto; color: var(--tert); font-size: 11.5px; font-feature-settings: "tnum"; white-space: nowrap; }
+  .sub { color: var(--dim); font-size: 12px; padding: 0 4px 8px; display: flex; gap: 6px; align-items: center; }
+  .sub svg.i { width: 14px; height: 14px; color: var(--accent); }
+  .acts { display: flex; gap: 2px; align-items: center; }
+  .acts .grow { flex: 1; }
+  .life { position: absolute; left: 14px; right: 14px; bottom: 5px; height: 3px; border-radius: 2px; background: var(--track); overflow: hidden; }
+  .life i { display: block; height: 100%; background: var(--accent); border-radius: 2px; }
+  .badge { position: absolute; top: 8px; left: 8px; background: rgba(17,17,27,.82); color: var(--text); font-size: 11px; font-weight: 600; border-radius: 6px; padding: 3px 7px; display: flex; gap: 5px; align-items: center; }
+  .badge svg.i { width: 13px; height: 13px; color: var(--accent); }
+  .ghost { position: absolute; width: 150px; height: 94px; border-radius: var(--r-card); overflow: hidden; box-shadow: var(--shadow); opacity: .92; transform: rotate(-3deg); border: 1px solid var(--border); }
+
+  /* ---------- frame 4: settings ---------- */
+  .scrim { position: absolute; inset: 0; background: rgba(9,9,16,.55); }
+  .settings { position: absolute; left: 140px; top: 90px; width: 1000px; height: 620px; background: var(--bg); border-radius: var(--r-dialog); box-shadow: var(--shadow); display: flex; overflow: hidden; }
+  .groups { width: 250px; padding: 14px 10px; }
+  .search { height: 32px; background: var(--field); border-radius: var(--r-small); display: flex; align-items: center; gap: 8px; padding: 0 10px; color: var(--tert); margin-bottom: 12px; }
+  .search kbd { margin-left: auto; }
+  .g { display: flex; gap: 10px; padding: 7px 10px; border-radius: var(--r-small); align-items: center; position: relative; }
+  .g svg.i { color: var(--dim); }
+  .g div b { display: block; font-weight: 500; } .g div span { color: var(--tert); font-size: 11.5px; }
+  .g.sel { background: rgba(137,180,250,.16); } .g.sel::before { content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 2px; border-radius: 2px; background: var(--accent); }
+  .g.sel svg.i { color: var(--accent); }
+  .opts { flex: 1; padding: 18px 28px; }
+  .label { font-size: 11px; font-weight: 600; color: var(--tert); letter-spacing: .06em; margin: 4px 0 8px; }
+  .opt { min-height: 52px; display: flex; align-items: center; gap: 16px; background: var(--card); padding: 8px 14px; }
+  .opt:first-of-type { border-radius: var(--r-card) var(--r-card) 0 0; }
+  .opt + .opt { margin-top: 2px; }
+  .opt.last { border-radius: 0 0 var(--r-card) var(--r-card); }
+  .opt div b { display: block; font-weight: 500; } .opt div span { color: var(--dim); font-size: 12px; }
+  .opt .ctl { margin-left: auto; }
+  .switch { width: 36px; height: 20px; border-radius: 10px; background: var(--accent); position: relative; }
+  .switch::after { content: ""; position: absolute; right: 2px; top: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--on-accent); }
+  .btn { height: 32px; padding: 0 12px; border-radius: var(--r-small); background: var(--field); display: flex; align-items: center; gap: 8px; color: var(--text); }
+  .btn svg.i { color: var(--dim); }
+  .new { color: var(--accent); font-size: 10.5px; font-weight: 600; margin-left: 6px; letter-spacing: .04em; }
+
+  /* ---------- annotations (not part of the UI) ---------- */
+  .note { position: absolute; background: #fff6d6; color: #2a2a2a; font: 12.5px/1.4 Inter, sans-serif; padding: 8px 11px; border-radius: 8px; width: 240px; box-shadow: 0 6px 18px rgba(0,0,0,.4); z-index: 50; }
+  .note b { display: block; margin-bottom: 2px; }
+  .note::before { content: attr(data-n); position: absolute; left: -11px; top: -11px; width: 22px; height: 22px; border-radius: 50%; background: #2a2a2a; color: #fff6d6; font-weight: 700; font-size: 12px; display: grid; place-items: center; }
+  .title { position: absolute; left: 0; right: 0; bottom: 0; height: 0; }
+  .ftitle { position: absolute; right: 14px; top: 34px; z-index: 60; background: rgba(17,17,27,.85); color: #fff; padding: 6px 12px; border-radius: 8px; font-weight: 600; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<!-- Icons -->
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <symbol id="region" viewBox="0 0 24 24"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/></symbol>
+    <symbol id="window" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="2"/><path d="M3.5 9h17"/></symbol>
+    <symbol id="screen" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="12" rx="2"/><path d="M9 20h6M12 16.5V20"/></symbol>
+    <symbol id="edit" viewBox="0 0 24 24"><path d="M14.5 5.5l4 4M4 20l1-4.5L15.8 4.7a1.8 1.8 0 0 1 2.5 0l1 1a1.8 1.8 0 0 1 0 2.5L8.5 19z"/></symbol>
+    <symbol id="copy" viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 8.5V6a1.5 1.5 0 0 0-1.5-1.5H6A1.5 1.5 0 0 0 4.5 6v8A1.5 1.5 0 0 0 6 15.5h2.5"/></symbol>
+    <symbol id="pin" viewBox="0 0 24 24"><path d="M9 4h6M10 4v6l-3 4h10l-3-4V4M12 14v6"/></symbol>
+    <symbol id="folder" viewBox="0 0 24 24"><path d="M4 7.5A1.5 1.5 0 0 1 5.5 6H10l2 2h6.5A1.5 1.5 0 0 1 20 9.5v8a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z"/></symbol>
+    <symbol id="text" viewBox="0 0 24 24"><path d="M4 8V5h3M17 5h3v3M20 16v3h-3M7 19H4v-3M9 9h6M12 9v6"/></symbol>
+    <symbol id="close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+    <symbol id="check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+    <symbol id="timer" viewBox="0 0 24 24"><circle cx="12" cy="13" r="7"/><path d="M12 9.5V13l2 2M10 3h4"/></symbol>
+    <symbol id="more" viewBox="0 0 24 24"><circle cx="6" cy="12" r=".8"/><circle cx="12" cy="12" r=".8"/><circle cx="18" cy="12" r=".8"/></symbol>
+    <symbol id="search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></symbol>
+    <symbol id="camera" viewBox="0 0 24 24"><path d="M4 8.5A1.5 1.5 0 0 1 5.5 7h2L9 5h6l1.5 2h2A1.5 1.5 0 0 1 20 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z"/><circle cx="12" cy="13" r="3.2"/></symbol>
+    <symbol id="history" viewBox="0 0 24 24"><path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3L4.5 9M4.5 5v4h4M12 8.5V12l2.5 1.5"/></symbol>
+    <symbol id="shield" viewBox="0 0 24 24"><path d="M12 3.5l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9v-5z"/></symbol>
+    <symbol id="rec" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7.5"/><circle cx="12" cy="12" r="3" /></symbol>
+    <symbol id="brush" viewBox="0 0 24 24"><path d="M14 4l6 6-7.5 7.5H7v-5.5zM4 20c1.5 0 3-1 3-2.5"/></symbol>
+    <symbol id="keys" viewBox="0 0 24 24"><rect x="3" y="6.5" width="18" height="11" rx="2"/><path d="M7 10h.01M11 10h.01M15 10h.01M8 14h8"/></symbol>
+    <symbol id="scroll" viewBox="0 0 24 24"><rect x="6" y="3.5" width="12" height="17" rx="2.5"/><path d="M12 8v7.5M9.5 13L12 15.5 14.5 13"/></symbol>
+    <symbol id="record" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7.5"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="qr" viewBox="0 0 24 24"><path d="M4.5 4.5h5v5h-5zM14.5 4.5h5v5h-5zM4.5 14.5h5v5h-5zM7 7h.01M17 7h.01M7 17h.01M14.5 14.5h2v2M19.5 14.5v.01M14.5 19.5h.01M17.5 19.5h2v-2"/></symbol>
+    <symbol id="pipette" viewBox="0 0 24 24"><path d="M14.5 6.5l3 3M6.5 17.5l-1 2.5 2.5-1L17 10l-3-3zM15.5 5.5l1.3-1.3a1.8 1.8 0 0 1 2.5 0l.5.5a1.8 1.8 0 0 1 0 2.5L18.5 8.5"/></symbol>
+    <symbol id="wrap" viewBox="0 0 24 24"><path d="M4.5 6h15M4.5 12h12a3 3 0 0 1 0 6H13M15 16l-2 2 2 2M4.5 18h4.5"/></symbol>
+    <symbol id="eye" viewBox="0 0 24 24"><path d="M2.5 12s3.5-6.5 9.5-6.5 9.5 6.5 9.5 6.5-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.75"/></symbol>
+    <symbol id="link" viewBox="0 0 24 24"><path d="M10.5 13.5a3.5 3.5 0 0 0 5 0l3-3a3.5 3.5 0 0 0-5-5l-1 1M13.5 10.5a3.5 3.5 0 0 0-5 0l-3 3a3.5 3.5 0 0 0 5 5l1-1"/></symbol>
+    <symbol id="speaker" viewBox="0 0 24 24"><path d="M4.5 9.5h3l4-3.5v12l-4-3.5h-3zM15 9a4 4 0 0 1 0 6M17.5 6.5a7.5 7.5 0 0 1 0 11"/></symbol>
+    <symbol id="mic" viewBox="0 0 24 24"><rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M6 11.5a6 6 0 0 0 12 0M12 17.5V20.5"/></symbol>
+    <symbol id="pointer" viewBox="0 0 24 24"><path d="M6 4l12 7-5.5 1.5L10 18z"/></symbol>
+    <symbol id="cam" viewBox="0 0 24 24"><rect x="3.5" y="7" width="12" height="10" rx="2"/><path d="M15.5 10.5l5-3v9l-5-3"/></symbol>
+    <symbol id="chev" viewBox="0 0 24 24"><path d="M7 10l5 5 5-5"/></symbol>
+  </defs>
+</svg>
+
+<!-- Reusable desktop -->
+<template id="desk">
+  <div class="bar"><div class="ws"><b>1</b><span>2</span><span>3</span><span>4</span></div><span class="clock">Tue 3 Nov 7:55 PM</span><span>72°</span><span>100%</span></div>
+  <div class="win browser active">
+    <div class="tabs"><span class="tab">design-nexus/nyx-capture</span><span class="tab dim">Hyprland wiki</span></div>
+    <div class="url">github.com/design-nexus/nyx-capture</div>
+    <div class="page">
+      <h1>nyx-capture</h1>
+      <p>Screenshots, annotation, OCR and screen recording for Omarchy and Hyprland.</p>
+      <div class="hero"></div>
+      <div class="row"><i></i>apps/capture</div>
+      <div class="row"><i></i>crates/nyx-capture-core</div>
+      <div class="row"><i></i>README.md</div>
+      <div class="row"><i></i>install.sh</div>
+      <div class="row"><i></i>Cargo.toml</div>
+    </div>
+  </div>
+  <div class="win term"><pre><span class="g">ken@Hades</span> <span class="b">~/Projects/nyx-capture</span>
+<span class="m">❯</span> cargo test -p nyx-capture
+   Compiling nyx-capture v0.1.0
+    Finished test profile in 3.9s
+     Running unittests src/main.rs
+test result: ok. 19 passed; 0 failed
+
+<span class="g">ken@Hades</span> <span class="b">~/Projects/nyx-capture</span>
+<span class="m">❯</span> git status --short
+ M apps/capture/src/overlay.rs
+ M apps/capture/src/main.rs
+
+<span class="g">ken@Hades</span> <span class="b">~/Projects/nyx-capture</span>
+<span class="m">❯</span> █</pre></div>
+</template>
+
+<!-- ===================== 1. Choosing ===================== -->
+<section class="frame" id="f1">
+  <div class="desk"></div>
+  <div class="ftitle">1 · Press Print: choose</div>
+  <div class="lit" style="left:10px; top:36px; width:790px; height:754px;"></div>
+  <div class="cross" style="left:513px; top:377px;"></div>
+  <div class="chip" style="left:540px; top:404px;"><b>1580 × 1508</b><span>Firefox</span></div>
+  <div class="loupe" style="left:540px; top:440px;"></div>
+  <div class="loupe-read" style="left:544px; top:562px;">X 524 · Y 388</div>
+
+  <div class="cb v2" data-mode="smart" style="bottom:22px;"></div>
+
+  <div class="note" data-n="1" style="left:830px; top:92px;"><b>The still, dimmed; what you'd get is lit</b>Hovering a window lights it with a thin accent outline. Dragging draws a region instead. Clicking empty space takes the whole monitor. Press Print again to cancel.</div>
+  <div class="note" data-n="2" style="left:830px; top:236px;"><b>Size and app beside the pointer</b>One small chip, plus a magnifier for exact edges. No large shortcut card covering the screen.</div>
+  <div class="note" data-n="3" style="left:1010px; top:560px; width:250px;"><b>One capture bar, bottom centre</b>Eight modes (keys 1–8): Smart, Window and Screen with names; Scroll, Record, Text, QR code and Colour as icons. Then the chosen mode's options: here edit after capture (E) and delay 3 s (D).</div>
+</section>
+
+<!-- ===================== 2. Captured ===================== -->
+<section class="frame" id="f2">
+  <div class="desk"></div>
+  <div class="ftitle">2 · After the shot: copied, saved, card</div>
+  <div class="card" style="bottom:16px;">
+    <div class="thumb"><div class="mini" style="transform:scale(.353)"></div></div>
+    <div class="meta"><span class="t">nyx-capture — Firefox</span><span class="s">1580 × 1508</span></div>
+    <div class="sub"><svg class="i"><use href="#check"/></svg>Copied · saved to Screenshots</div>
+    <div class="acts">
+      <div class="ib primary"><svg class="i"><use href="#edit"/></svg></div>
+      <div class="ib"><svg class="i"><use href="#copy"/></svg></div>
+      <div class="ib"><svg class="i"><use href="#text"/></svg></div>
+      <div class="ib"><svg class="i"><use href="#folder"/></svg></div>
+      <div class="ib"><svg class="i"><use href="#pin"/></svg></div>
+      <div class="grow"></div>
+      <div class="ib"><svg class="i"><use href="#close"/></svg></div>
+    </div>
+    <div class="life"><i style="width:62%"></i></div>
+  </div>
+
+  <div class="note" data-n="4" style="left:560px; top:420px;"><b>A real card, not buttons on the picture</b>A Nyx popover: the shot, then its title and size, then one row of normal icon buttons. Nothing covers the picture.</div>
+  <div class="note" data-n="5" style="left:560px; top:560px;"><b>Edit is the one primary action</b>Then copy again, copy its text, show in folder, keep it on screen. Each has a tooltip with its key.</div>
+  <div class="note" data-n="6" style="left:560px; top:690px;"><b>A thin line shows how long it stays</b>It stops while the pointer is on the card. How long it stays is a setting.</div>
+</section>
+
+<!-- ===================== 3. Hover, pin, drag ===================== -->
+<section class="frame" id="f3">
+  <div class="desk"></div>
+  <div class="ftitle">3 · Hover, keep, drag out</div>
+  <div class="card" style="bottom:16px;">
+    <div class="thumb"><div class="mini" style="transform:scale(.353)"></div><span class="badge"><svg class="i"><use href="#pin"/></svg>Kept</span></div>
+    <div class="meta"><span class="t">nyx-capture — Firefox</span><span class="s">1580 × 1508</span></div>
+    <div class="sub" style="color:var(--tert)">7:52 PM · Screenshots</div>
+    <div class="acts">
+      <div class="ib primary"><svg class="i"><use href="#edit"/></svg></div>
+      <div class="ib"><svg class="i"><use href="#copy"/></svg></div>
+      <div class="ib"><svg class="i"><use href="#text"/></svg></div>
+      <div class="ib"><svg class="i"><use href="#folder"/></svg></div>
+      <div class="ib on"><svg class="i"><use href="#pin"/></svg></div>
+      <div class="grow"></div>
+      <div class="ib"><svg class="i"><use href="#close"/></svg></div>
+    </div>
+  </div>
+  <div class="card" style="bottom:322px;">
+    <div class="thumb" style="height:110px; background:#181825"><div class="mini2" style="padding:12px 14px; font:11px/1.6 'JetBrains Mono',monospace; color:#bac2de"><span style="color:#a6e3a1">ken@Hades</span> ~/Projects/nyx-capture<br><span style="color:#f5c2e7">❯</span> cargo test -p nyx-capture<br>test result: ok. 19 passed; 0 failed</div></div>
+    <div class="meta"><span class="t">Terminal</span><span class="s">920 × 286</span></div>
+    <div class="sub"><svg class="i"><use href="#check"/></svg>Copied · saved to Screenshots</div>
+    <div class="acts">
+      <div class="ib primary"><svg class="i"><use href="#edit"/></svg></div>
+      <div class="ib hover"><svg class="i"><use href="#copy"/></svg></div>
+      <div class="ib"><svg class="i"><use href="#text"/></svg></div>
+      <div class="ib"><svg class="i"><use href="#folder"/></svg></div>
+      <div class="ib"><svg class="i"><use href="#pin"/></svg></div>
+      <div class="grow"></div>
+      <div class="ib"><svg class="i"><use href="#close"/></svg></div>
+    </div>
+    <div class="life"><i style="width:100%; opacity:.45"></i></div>
+  </div>
+  <div class="tip" style="right:212px; bottom:316px;">Copy again<kbd>Ctrl C</kbd></div>
+  <div class="ghost" style="left:520px; top:300px; background:#181825"><div style="padding:10px; font:9px/1.6 'JetBrains Mono',monospace; color:#bac2de">❯ cargo test -p nyx-capture<br>test result: ok. 19 passed</div></div>
+
+  <div class="note" data-n="7" style="left:300px; top:460px;"><b>New cards stack above kept ones</b>The terminal shot sits on top. Pointing at it stops its timer (the line goes faint). The kept card below shows a pin and has no timer.</div>
+  <div class="note" data-n="8" style="left:300px; top:620px;"><b>Drag the picture into any app</b>It drops the PNG file (shown mid-drag above). Dragging a card also keeps it.</div>
+</section>
+
+<!-- ===================== 4. Settings ===================== -->
+<section class="frame" id="f4">
+  <div class="desk"></div>
+  <div class="scrim"></div>
+  <div class="ftitle">4 · Settings → Capture: set it, no rebuild</div>
+  <div class="settings">
+    <div class="groups">
+      <div class="search"><svg class="i"><use href="#search"/></svg>Search settings<kbd>Ctrl F</kbd></div>
+      <div class="g sel"><svg class="i"><use href="#camera"/></svg><div><b>Capture</b><span>Smart · copy and save</span></div></div>
+      <div class="g"><svg class="i"><use href="#history"/></svg><div><b>History</b><span>Kept 90 days</span></div></div>
+      <div class="g"><svg class="i"><use href="#shield"/></svg><div><b>Privacy</b><span>Assistant can't see shots</span></div></div>
+      <div class="g"><svg class="i"><use href="#text"/></svg><div><b>OCR</b><span>Automatic · English</span></div></div>
+      <div class="g"><svg class="i"><use href="#rec"/></svg><div><b>Recording</b><span>gpu-screen-recorder</span></div></div>
+      <div class="g"><svg class="i"><use href="#brush"/></svg><div><b>Appearance</b><span>Follow Omarchy</span></div></div>
+      <div class="g"><svg class="i"><use href="#keys"/></svg><div><b>Keyboard</b><span>Shortcuts</span></div></div>
+    </div>
+    <div class="opts">
+      <div class="label">PRINT KEY</div>
+      <div class="opt"><div><b>Start with<span class="new">NEW</span></b><span>What the capture bar has chosen when it opens.</span></div><div class="ctl seg"><span class="sel">Smart</span><span>Window</span><span>Screen</span></div></div>
+      <div class="opt"><div><b>After a screenshot</b><span>What happens once you've chosen.</span></div><div class="ctl seg"><span class="sel">Copy and save</span><span>Copy</span><span>Edit</span><span>Pin</span></div></div>
+      <div class="opt"><div><b>Shot card<span class="new">NEW</span></b><span>Show the shot in the corner with Edit, Copy and Keep.</span></div><div class="ctl switch"></div></div>
+      <div class="opt last"><div><b>Card stays<span class="new">NEW</span></b><span>Pointing at the card always stops the clock.</span></div><div class="ctl seg"><span>4 s</span><span class="sel">7 s</span><span>15 s</span><span>Until closed</span></div></div>
+      <div class="label" style="margin-top:18px">FILES</div>
+      <div class="opt"><div><b>Save folder</b><span>Where shots are saved. Read each time; no restart.</span></div><div class="ctl btn"><svg class="i"><use href="#folder"/></svg>~/Pictures/Screenshots</div></div>
+      <div class="opt last"><div><b>File name<span class="new">NEW</span></b><span>{date}, {time} and {app} are filled in.</span></div><div class="ctl btn" style="font-feature-settings:'tnum'">screenshot-{date}_{time}-{app}</div></div>
+    </div>
+  </div>
+  <div class="note" data-n="9" style="left:880px; top:722px; width:300px;"><b>Everything here, nothing hard-coded</b>Folder, file name, card and timer are settings. Changing them takes effect on the next Print press.</div>
+</section>
+
+<script>
+  const desk = document.getElementById('desk');
+  document.querySelectorAll('.desk').forEach(d => d.replaceWith(desk.content.cloneNode(true)));
+  // Thumbnails: a scaled copy of the browser window.
+  document.querySelectorAll('.mini').forEach(m => {
+    const b = desk.content.querySelector('.browser').cloneNode(true);
+    b.style.left = '0'; b.style.top = '0'; b.style.border = '0'; b.style.borderRadius = '0';
+    m.appendChild(b);
+  });
+  // The drag ghost on frame 3 sits under the pointer, mid-drag towards the terminal.
+
+  // Capture bars: the same modes, options and hints as the app (overlay.rs).
+  const MODES = [['smart', 'region', 'Smart'], ['window', 'window', 'Window'], ['screen', 'screen', 'Screen'],
+    ['scroll', 'scroll'], ['record', 'record'], ['text', 'text'], ['qr', 'qr'], ['colour', 'pipette']];
+  const SHOT = [['o', 'edit'], ['o', 'timer']];
+  const OPTS = {
+    smart: SHOT, window: SHOT, screen: SHOT, scroll: [['o', 'edit']],
+    text: [['o', 'timer'], ['o', 'wrap', 1], ['o', 'eye']],
+    qr: [['o', 'link']],
+    colour: [['dd', 'HEX']],
+    record: [['o', 'speaker', 1], ['o', 'mic'], ['o', 'pointer', 1], ['o', 'cam'], ['o', 'timer'], ['dd', 'MP4']],
+  };
+  const HINTS = {
+    smart: 'Drag to select an area, or click a window or empty space for the screen',
+    text: 'Drag over the text, or click a window or empty space for the screen',
+    qr: 'Click a highlighted code, or drag over one',
+    colour: 'Click to copy the colour · Shift+click to pick another',
+    record: 'Drag to select an area, or click a window or empty space for the screen',
+  };
+  const ic = id => `<svg class="i"><use href="#${id}"/></svg>`;
+  document.querySelectorAll('.cb[data-mode]').forEach(el => {
+    const mode = el.dataset.mode, hover = el.dataset.hover || '';
+    const modes = MODES.map(([m, icon, label]) => {
+      const cls = ['m', label ? 'lab' : 'ico', m === mode ? 'sel' : '', hover === 'm:' + m ? 'hov' : ''].join(' ');
+      return `<span class="${cls}">${ic(icon)}${label || ''}</span>`;
+    }).join('');
+    const opts = OPTS[mode].map(([kind, what, on]) => kind === 'dd'
+      ? `<span class="dd">${what}${ic('chev')}</span>`
+      : `<span class="o ${on ? 'on' : ''} ${hover === 'o:' + what ? 'hov' : ''}">${ic(what)}</span>`).join('');
+    el.innerHTML = `<div class="modes">${modes}</div><span class="s"></span>${opts}<span class="s"></span>`
+      + `<span class="h">${HINTS[mode] || HINTS.smart}</span><kbd>Esc</kbd>`;
+  });
+</script>
+</body>
+</html>
