@@ -130,7 +130,7 @@ Capability flags hide unsupported settings. The GTK app never offers a control w
 
 | File | Role |
 | --- | --- |
-| `main.rs` | `app::init`, GSK `ngl`, GApplication `HANDLES_COMMAND_LINE`, control interface, `--toggle`. |
+| `main.rs` | `app::init`, GSK `gl`, GApplication `HANDLES_COMMAND_LINE`, control interface, `--toggle`. |
 | `window.rs` | History shell. Music sidebar construction (`hexpand(false)` on sidebar/nav/scroller). |
 | `overlay.rs` | Fullscreen still overlay, region/window pick, magnifier, dimensions, keys. |
 | `editor.rs` | Annotation canvas + tool strip. Photos editor flow, Capture tools added. |
