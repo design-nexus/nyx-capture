@@ -1,5 +1,5 @@
-//! Picture-in-picture webcam via mpv. Uses Omarchy's WebcamOverlay window
-//! class so existing Hyprland rules place and pin it.
+//! Picture-in-picture webcam via mpv, with the WebcamOverlay window
+//! class that Omarchy's and NyxOS's Hyprland rules float, place and pin.
 
 use crate::detect;
 use anyhow::{Result, bail};
