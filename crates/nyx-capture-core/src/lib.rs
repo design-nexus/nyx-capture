@@ -23,7 +23,9 @@ pub use capture::{CaptureBackend, CaptureMode, CaptureRequest, Grim, Portal, Sho
 pub use detect::Tools;
 pub use geom::Rect;
 pub use ocr::{OcrEngine, OcrMode, OcrResult, recognize};
-pub use record::{Backend as RecordBackend, Container, RecordCaps, RecordRequest, Session as RecordSession, Target as RecordTarget};
+pub use record::{
+    Backend as RecordBackend, Container, RecordCaps, RecordRequest, Session as RecordSession, Target as RecordTarget,
+};
 pub use store::{CaptureKind, CaptureRow, Db};
 
 use anyhow::{Context, Result};

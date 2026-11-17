@@ -17,12 +17,15 @@ pub fn description(app_id: &str) -> Value {
             _ => "writes",
         };
         t["x-nyx"] = json!({"risk": risk});
+        // A single required argument can be given bare: `nyx APP VERB WORDS`.
+        if let Some([one]) = t["inputSchema"]["required"].as_array().map(Vec::as_slice) {
+            t["x-nyx"]["positional"] = json!([one]);
+        }
     }
     json!({
         "tools": tools,
         "nyx": {"api": 2, "app": app_id, "name": "Capture", "icon": "io.github.design_nexus.nyx.Capture", "namespaces": ["capture"],
-                "aliases": ["screenshot"], "bus_name": app_id, "activation": "dbus", "default": "capture.search",
-                "open": {"action": "capture.open"}}
+                "aliases": ["screenshot"], "bus_name": app_id, "activation": "dbus", "default": "capture.search"}
     })
 }
 

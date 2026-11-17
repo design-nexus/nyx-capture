@@ -56,10 +56,7 @@ pub fn list_devices() -> Vec<Device> {
         && out.status.success()
     {
         let text = String::from_utf8_lossy(&out.stdout);
-        let found: Vec<Device> = parse_v4l2_devices(&text)
-            .into_iter()
-            .filter(|d| capture_capable(&d.path))
-            .collect();
+        let found: Vec<Device> = parse_v4l2_devices(&text).into_iter().filter(|d| capture_capable(&d.path)).collect();
         if !found.is_empty() {
             return found;
         }

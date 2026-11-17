@@ -43,14 +43,7 @@ pub struct Shot {
 impl Shot {
     pub fn from_png(bytes: Vec<u8>, area: Rect, output: Option<String>, backend: &str) -> Result<Self> {
         let image = image::load_from_memory_with_format(&bytes, image::ImageFormat::Png)?;
-        Ok(Self {
-            scale: Self::scale_of(&image, area),
-            image,
-            area,
-            output,
-            backend: backend.into(),
-            png: Some(bytes),
-        })
+        Ok(Self { scale: Self::scale_of(&image, area), image, area, output, backend: backend.into(), png: Some(bytes) })
     }
 
     /// A shot made here (a stitched scroll), with `scale` image pixels per layout unit.
@@ -59,11 +52,7 @@ impl Shot {
     }
 
     pub fn scale_of(image: &DynamicImage, area: Rect) -> f64 {
-        if area.w <= 0 {
-            1.0
-        } else {
-            image.width() as f64 / area.w as f64
-        }
+        if area.w <= 0 { 1.0 } else { image.width() as f64 / area.w as f64 }
     }
 
     pub fn png(&self) -> Result<Vec<u8>> {

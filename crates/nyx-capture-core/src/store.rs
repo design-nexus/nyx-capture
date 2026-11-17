@@ -161,20 +161,15 @@ impl Db {
     }
 
     pub fn dhash(&self, id: &str) -> Result<Option<i64>> {
-        self.conn
-            .query_row("SELECT dhash FROM captures WHERE id=?1", params![id], |r| r.get(0))
-            .optional()
-            .map_err(Into::into)
+        self.conn.query_row("SELECT dhash FROM captures WHERE id=?1", params![id], |r| r.get(0)).optional().map_err(Into::into)
     }
 
     pub fn set_ocr(&self, id: &str, engine: &str, text: &str) -> Result<()> {
         if self.get(id)?.is_some_and(|r| r.sensitive) {
             return Ok(());
         }
-        self.conn.execute(
-            "UPDATE captures SET ocr_engine=?2, ocr_status='done', ocr=?3 WHERE id=?1",
-            params![id, engine, text],
-        )?;
+        self.conn
+            .execute("UPDATE captures SET ocr_engine=?2, ocr_status='done', ocr=?3 WHERE id=?1", params![id, engine, text])?;
         if let Ok(Some(row)) = self.get(id)
             && row.path.is_file()
         {
@@ -184,10 +179,7 @@ impl Db {
     }
 
     pub fn ocr_text(&self, id: &str) -> Result<Option<String>> {
-        self.conn
-            .query_row("SELECT ocr FROM captures WHERE id=?1", params![id], |r| r.get(0))
-            .optional()
-            .map_err(Into::into)
+        self.conn.query_row("SELECT ocr FROM captures WHERE id=?1", params![id], |r| r.get(0)).optional().map_err(Into::into)
     }
 
     pub fn get(&self, id: &str) -> Result<Option<CaptureRow>> {
@@ -326,9 +318,8 @@ impl Db {
         let mut stmt = self
             .conn
             .prepare("SELECT id, path, thumb_path FROM captures WHERE starred=0 AND kind='screenshot' AND created_at < ?1")?;
-        let doomed: Vec<(String, String, Option<String>)> = stmt
-            .query_map(params![cutoff], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
-            .collect::<rusqlite::Result<_>>()?;
+        let doomed: Vec<(String, String, Option<String>)> =
+            stmt.query_map(params![cutoff], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<rusqlite::Result<_>>()?;
         let mut paths = Vec::new();
         for (id, path, thumb) in doomed {
             self.conn.execute("DELETE FROM captures WHERE id=?1", params![id])?;
@@ -377,11 +368,7 @@ pub fn write_thumb(src: &Path, dest: &Path, edge: u32) -> Result<()> {
         .args(["-frames:v", "1", "-vf", &format!("scale={edge}:-2"), "-q:v", "3"])
         .arg(dest)
         .status()?;
-    if status.success() && dest.exists() {
-        Ok(())
-    } else {
-        anyhow::bail!("ffmpeg thumbnail failed")
-    }
+    if status.success() && dest.exists() { Ok(()) } else { anyhow::bail!("ffmpeg thumbnail failed") }
 }
 
 pub fn ocr_sidecar(path: &Path) -> PathBuf {
@@ -487,13 +474,7 @@ mod tests {
         std::fs::write(crate::annot::sidecar_path(&png), b"{}").unwrap();
         let db = open(&dir.join("capture.sqlite")).unwrap();
         let id = db
-            .insert(&NewCapture {
-                kind: CaptureKind::Screenshot,
-                width: 8,
-                height: 8,
-                path: png.clone(),
-                source: "grim".into(),
-            })
+            .insert(&NewCapture { kind: CaptureKind::Screenshot, width: 8, height: 8, path: png.clone(), source: "grim".into() })
             .unwrap();
         let gone = db.delete(&id).unwrap();
         assert!(gone.contains(&png));
@@ -511,13 +492,7 @@ mod tests {
         std::fs::write(&png, b"png").unwrap();
         let db = open(&dir.join("capture.sqlite")).unwrap();
         let id = db
-            .insert(&NewCapture {
-                kind: CaptureKind::Screenshot,
-                width: 8,
-                height: 8,
-                path: png.clone(),
-                source: "grim".into(),
-            })
+            .insert(&NewCapture { kind: CaptureKind::Screenshot, width: 8, height: 8, path: png.clone(), source: "grim".into() })
             .unwrap();
         db.set_ocr(&id, "tesseract", "ken@example.com").unwrap();
         assert_eq!(db.ocr_text(&id).unwrap().as_deref(), Some("ken@example.com"));
@@ -538,8 +513,14 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let db = open(&dir.join("capture.sqlite")).unwrap();
         let add = |name: &str| {
-            db.insert(&NewCapture { kind: CaptureKind::Screenshot, width: 1, height: 1, path: dir.join(name), source: "grim".into() })
-                .unwrap()
+            db.insert(&NewCapture {
+                kind: CaptureKind::Screenshot,
+                width: 1,
+                height: 1,
+                path: dir.join(name),
+                source: "grim".into(),
+            })
+            .unwrap()
         };
         let plain = add("ab.png");
         assert!(db.get_by_path(Path::new("/elsewhere/a_.png")).unwrap().is_none());
@@ -561,7 +542,15 @@ mod tests {
         });
         st.save(&crate::annot::sidecar_path(&png)).unwrap();
         let db = open(&dir.join("capture.sqlite")).unwrap();
-        let id = db.insert(&NewCapture { kind: CaptureKind::Screenshot, width: 40, height: 40, path: png.clone(), source: "grim".into() }).unwrap();
+        let id = db
+            .insert(&NewCapture {
+                kind: CaptureKind::Screenshot,
+                width: 40,
+                height: 40,
+                path: png.clone(),
+                source: "grim".into(),
+            })
+            .unwrap();
         let thumb = dir.join("thumbs").join(format!("{id}.jpg"));
         db.thumb(&id, &png, &thumb, false).unwrap();
         // The thumbnail is the redacted picture (black), not the original (white).

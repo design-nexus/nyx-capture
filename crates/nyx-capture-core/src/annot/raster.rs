@@ -3,8 +3,8 @@
 
 use super::{ArrowStyle, Axis, Colour, Cut, EditState, Mark, NormRect, SpotShape};
 use cairo::{self, Context, Format, ImageSurface};
-use image::imageops::{self, FilterType};
 use image::RgbaImage;
+use image::imageops::{self, FilterType};
 use std::f64::consts::PI;
 
 const HIGHLIGHTER_WIDTH: f64 = 4.0;

@@ -78,9 +78,7 @@ pub fn present(program: &str) -> bool {
     if program.contains('/') {
         return Path::new(program).is_file();
     }
-    std::env::var_os("PATH")
-        .map(|paths| std::env::split_paths(&paths).any(|dir| dir.join(program).is_file()))
-        .unwrap_or(false)
+    std::env::var_os("PATH").map(|paths| std::env::split_paths(&paths).any(|dir| dir.join(program).is_file())).unwrap_or(false)
 }
 
 #[cfg(test)]

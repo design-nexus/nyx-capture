@@ -71,7 +71,12 @@ fn fallback_area(image: &DynamicImage) -> Rect {
 
 /// slurp prints geometry or fails when cancelled.
 pub fn slurp_geometry() -> Result<Option<Rect>> {
-    let out = Command::new("slurp").stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).output().context("slurp isn't available")?;
+    let out = Command::new("slurp")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .context("slurp isn't available")?;
     if !out.status.success() {
         return Ok(None);
     }

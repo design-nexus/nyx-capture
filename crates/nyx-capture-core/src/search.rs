@@ -33,11 +33,9 @@ pub fn library_query(raw: &str) -> LibraryQuery {
     if lower.is_empty() || lower == "capture" {
         return LibraryQuery { view: View::Recent, text: String::new() };
     }
-    for (prefix, view) in [
-        ("capture starred", View::Starred),
-        ("capture screenshots", View::Screenshots),
-        ("capture recordings", View::Recordings),
-    ] {
+    for (prefix, view) in
+        [("capture starred", View::Starred), ("capture screenshots", View::Screenshots), ("capture recordings", View::Recordings)]
+    {
         if lower == prefix {
             return LibraryQuery { view, text: String::new() };
         }

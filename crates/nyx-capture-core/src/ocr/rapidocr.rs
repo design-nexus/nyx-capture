@@ -3,8 +3,8 @@
 use super::{OcrEngine, OcrLine, OcrResult};
 use anyhow::{Context, Result};
 use image::DynamicImage;
-use rapidocr_core::model::{ModelCache, ModelDownloadMode, PPOCRV6_SMALL};
 use rapidocr_core::RapidOcr as Engine;
+use rapidocr_core::model::{ModelCache, ModelDownloadMode, PPOCRV6_SMALL};
 use std::path::PathBuf;
 use std::sync::Mutex;
 

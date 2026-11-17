@@ -34,11 +34,7 @@ pub fn is_edited(path: &Path) -> bool {
 /// The picture to hand out (copy, pin, thumbnail, Nyx Assistant): with its marks burned
 /// in, so a redaction is never left behind in what leaves the editor.
 pub fn shareable(path: &Path) -> Result<DynamicImage> {
-    if is_edited(path) {
-        flatten_png(path)
-    } else {
-        image::open(path).with_context(|| format!("open {}", path.display()))
-    }
+    if is_edited(path) { flatten_png(path) } else { image::open(path).with_context(|| format!("open {}", path.display())) }
 }
 
 /// [`shareable`] as PNG bytes; the file as it is when there's nothing to burn in.

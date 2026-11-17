@@ -205,8 +205,18 @@ impl Cut {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Mark {
-    Stroke { points: Vec<(f64, f64)>, colour: Colour, size: f64, highlighter: bool },
-    Line { from: (f64, f64), to: (f64, f64), colour: Colour, size: f64 },
+    Stroke {
+        points: Vec<(f64, f64)>,
+        colour: Colour,
+        size: f64,
+        highlighter: bool,
+    },
+    Line {
+        from: (f64, f64),
+        to: (f64, f64),
+        colour: Colour,
+        size: f64,
+    },
     Arrow {
         from: (f64, f64),
         to: (f64, f64),
@@ -232,12 +242,30 @@ pub enum Mark {
         #[serde(default)]
         fill: bool,
     },
-    Text { at: (f64, f64), text: String, colour: Colour, size: f64 },
-    Callout { at: (f64, f64), n: u32, colour: Colour },
-    Pixelate { rect: NormRect, size: f64 },
-    Blur { rect: NormRect, size: f64 },
+    Text {
+        at: (f64, f64),
+        text: String,
+        colour: Colour,
+        size: f64,
+    },
+    Callout {
+        at: (f64, f64),
+        n: u32,
+        colour: Colour,
+    },
+    Pixelate {
+        rect: NormRect,
+        size: f64,
+    },
+    Blur {
+        rect: NormRect,
+        size: f64,
+    },
     /// A solid box: redaction nothing can be read back from.
-    Fill { rect: NormRect, colour: Colour },
+    Fill {
+        rect: NormRect,
+        colour: Colour,
+    },
     /// Everything outside the shape dimmed; with `zoom` above 1, what's inside is
     /// magnified about its centre (a loupe).
     Spotlight {
@@ -334,9 +362,9 @@ impl Mark {
                 r
             },
         );
-        let (x0, y0, x1, y1) = pts.iter().fold((f64::MAX, f64::MAX, f64::MIN, f64::MIN), |a, p| {
-            (a.0.min(p.0), a.1.min(p.1), a.2.max(p.0), a.3.max(p.1))
-        });
+        let (x0, y0, x1, y1) = pts
+            .iter()
+            .fold((f64::MAX, f64::MAX, f64::MIN, f64::MIN), |a, p| (a.0.min(p.0), a.1.min(p.1), a.2.max(p.0), a.3.max(p.1)));
         if pts.is_empty() {
             return NormRect::new(0.0, 0.0, 0.0, 0.0);
         }
@@ -523,7 +551,13 @@ mod tests {
     #[test]
     fn marks_drawn_on_a_crop_land_on_the_whole_picture() {
         let crop = NormRect::new(0.5, 0.0, 0.5, 1.0);
-        let view = Mark::Rect { rect: NormRect::new(0.0, 0.5, 1.0, 0.5), colour: Colour::rgb(1.0, 0.0, 0.0), size: 0.1, fill: false, radius: 0.0 };
+        let view = Mark::Rect {
+            rect: NormRect::new(0.0, 0.5, 1.0, 0.5),
+            colour: Colour::rgb(1.0, 0.0, 0.0),
+            size: 0.1,
+            fill: false,
+            radius: 0.0,
+        };
         let Mark::Rect { rect, size, .. } = view.uncropped(crop, 200.0, 100.0) else { unreachable!() };
         assert_eq!((rect.x, rect.y, rect.w, rect.h), (0.5, 0.5, 0.5, 0.5));
         // The view's shorter side is 100 of the picture's 100: same size.
@@ -559,7 +593,10 @@ mod tests {
         assert!(matches!(old.marks[0], Mark::Rect { fill: false, radius, .. } if radius == 0.0));
         assert!(matches!(old.marks[1], Mark::Ellipse { fill: false, .. }));
         assert!(matches!(old.marks[2], Mark::Arrow { style: ArrowStyle::Standard, .. }));
-        let spot = EditState::from_json(r#"{"crop":null,"version":1,"marks":[{"kind":"spotlight","rect":{"x":0.1,"y":0.1,"w":0.2,"h":0.2}}]}"#).unwrap();
+        let spot = EditState::from_json(
+            r#"{"crop":null,"version":1,"marks":[{"kind":"spotlight","rect":{"x":0.1,"y":0.1,"w":0.2,"h":0.2}}]}"#,
+        )
+        .unwrap();
         assert!(matches!(spot.marks[0], Mark::Spotlight { shape: SpotShape::Ellipse, zoom, .. } if zoom == 1.0));
     }
 

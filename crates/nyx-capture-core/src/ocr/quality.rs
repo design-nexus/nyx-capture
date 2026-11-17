@@ -36,11 +36,7 @@ pub fn score_tesseract(result: &OcrResult, img: &DynamicImage) -> TessQuality {
     let words: Vec<&str> = result.text.split_whitespace().collect();
     let confs: Vec<f32> = result.lines.iter().filter(|l| l.conf >= 0.0).map(|l| l.conf).collect();
     let mean_conf = if confs.is_empty() { 0.0 } else { confs.iter().sum::<f32>() as f64 / confs.len() as f64 };
-    let low_frac = if confs.is_empty() {
-        1.0
-    } else {
-        confs.iter().filter(|c| **c < 40.0).count() as f64 / confs.len() as f64
-    };
+    let low_frac = if confs.is_empty() { 1.0 } else { confs.iter().filter(|c| **c < 40.0).count() as f64 / confs.len() as f64 };
     let garbage = garbage_frac(&result.text);
     let empty = words.is_empty();
     let tiny_source = img.width().min(img.height()) < 80;
@@ -57,17 +53,9 @@ pub fn score_rapid(result: &OcrResult) -> Band {
         return Band::Poor;
     }
     let confs: Vec<f32> = result.lines.iter().filter(|l| l.conf >= 0.0).map(|l| l.conf).collect();
-    let mean = if confs.is_empty() {
-        0.0
-    } else {
-        confs.iter().sum::<f32>() as f64 / confs.len() as f64
-    };
+    let mean = if confs.is_empty() { 0.0 } else { confs.iter().sum::<f32>() as f64 / confs.len() as f64 };
     // Stored as 0–100 (engine-local). Band uses 0–1 RapidOCR scale: mean < 0.50 is Poor.
-    if mean / 100.0 < 0.50 {
-        Band::Poor
-    } else {
-        Band::Good
-    }
+    if mean / 100.0 < 0.50 { Band::Poor } else { Band::Good }
 }
 
 pub fn needs_fallback(q: &TessQuality) -> bool {

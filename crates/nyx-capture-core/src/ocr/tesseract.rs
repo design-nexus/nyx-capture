@@ -87,7 +87,14 @@ fn parse_tsv(tsv: &str) -> OcrResult {
                 g.h = (top + height).max(g.y + g.h) - g.y;
                 g.words.push((text.to_string(), conf));
             }
-            _ => grouped.push(LineAcc { num: line_num, x: left, y: top, w: width, h: height, words: vec![(text.to_string(), conf)] }),
+            _ => grouped.push(LineAcc {
+                num: line_num,
+                x: left,
+                y: top,
+                w: width,
+                h: height,
+                words: vec![(text.to_string(), conf)],
+            }),
         }
     }
     for g in grouped {

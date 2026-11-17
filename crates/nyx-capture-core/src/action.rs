@@ -1,10 +1,10 @@
 //! CLI capture actions used by `nyx-capture` without opening the history window.
 
 use crate::capture::{self, CaptureMode, CaptureRequest, slurp_region};
+use crate::clipboard;
 use crate::geom::Rect;
 use crate::ocr::{OcrMode, recognize};
 use crate::select;
-use crate::clipboard;
 use anyhow::{Result, bail};
 use std::path::PathBuf;
 use std::thread;

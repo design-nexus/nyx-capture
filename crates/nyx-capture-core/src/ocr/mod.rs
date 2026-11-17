@@ -67,10 +67,7 @@ pub fn recognize(img: &DynamicImage, mode: OcrMode, langs: &str) -> Result<OcrRe
             let tess = match Tesseract.recognize(&prep.image, langs) {
                 Ok(r) => scale_result(r, prep.sx, prep.sy),
                 Err(err) => {
-                    return RapidOcr
-                        .recognize(&prep.image, langs)
-                        .map(|r| scale_result(r, prep.sx, prep.sy))
-                        .map_err(|_| err);
+                    return RapidOcr.recognize(&prep.image, langs).map(|r| scale_result(r, prep.sx, prep.sy)).map_err(|_| err);
                 }
             };
             let q = score_tesseract(&tess, img);
@@ -177,7 +174,10 @@ mod tests {
 
     #[test]
     fn wrapped_lines_become_paragraphs() {
-        assert_eq!(unwrap_lines("The quick brown\nfox jumps over the la-\nzy dog.\n\nNext one\nhere."), "The quick brown fox jumps over the lazy dog.\n\nNext one here.");
+        assert_eq!(
+            unwrap_lines("The quick brown\nfox jumps over the la-\nzy dog.\n\nNext one\nhere."),
+            "The quick brown fox jumps over the lazy dog.\n\nNext one here."
+        );
         assert_eq!(unwrap_lines("A -\nB"), "A - B");
         assert_eq!(unwrap_lines(""), "");
     }

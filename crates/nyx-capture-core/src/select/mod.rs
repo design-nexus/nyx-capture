@@ -64,11 +64,7 @@ pub fn desktop_bounds() -> Result<Rect> {
 }
 
 pub fn snap_rect_at(point: (i32, i32), candidates: &[Rect]) -> Option<Rect> {
-    candidates
-        .iter()
-        .copied()
-        .filter(|r| r.contains(point.0, point.1))
-        .min_by_key(|r| r.area())
+    candidates.iter().copied().filter(|r| r.contains(point.0, point.1)).min_by_key(|r| r.area())
 }
 
 #[cfg(test)]

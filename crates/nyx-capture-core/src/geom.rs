@@ -39,12 +39,7 @@ impl Rect {
         let (xy, wh) = s.split_once(' ')?;
         let (x, y) = xy.split_once(',')?;
         let (w, h) = wh.split_once('x')?;
-        Some(Self {
-            x: parse_coord(x)?,
-            y: parse_coord(y)?,
-            w: parse_coord(w)?.max(0),
-            h: parse_coord(h)?.max(0),
-        })
+        Some(Self { x: parse_coord(x)?, y: parse_coord(y)?, w: parse_coord(w)?.max(0), h: parse_coord(h)?.max(0) })
     }
 
     /// Image-pixel box as a layout box given the capture's origin and scale.

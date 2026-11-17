@@ -128,9 +128,7 @@ pub fn pick(pref: &str) -> Option<Backend> {
     {
         return Some(b);
     }
-    [Backend::GpuScreenRecorder, Backend::WfRecorder, Backend::WlScreenrec, Backend::GstPortal]
-        .into_iter()
-        .find(|&b| present(b))
+    [Backend::GpuScreenRecorder, Backend::WfRecorder, Backend::WlScreenrec, Backend::GstPortal].into_iter().find(|&b| present(b))
 }
 
 fn named(id: &str) -> Option<Backend> {
@@ -496,12 +494,8 @@ fn to_gif(mp4: &Path) -> Result<PathBuf> {
     }
     let gif = mp4.with_extension("gif");
     let vf = "fps=15,scale=800:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse";
-    let status = Command::new("ffmpeg")
-        .args(["-v", "error", "-nostdin", "-y", "-i"])
-        .arg(mp4)
-        .args(["-vf", vf])
-        .arg(&gif)
-        .status()?;
+    let status =
+        Command::new("ffmpeg").args(["-v", "error", "-nostdin", "-y", "-i"]).arg(mp4).args(["-vf", vf]).arg(&gif).status()?;
     if status.success() && gif.is_file() {
         let _ = fs::remove_file(mp4);
         Ok(gif)
@@ -636,7 +630,12 @@ async fn open_screencast(cursor: bool) -> Result<GstCast> {
         )
         .await
         .context("screencast sources")?;
-    let response = proxy.start(&session, None, Default::default()).await.context("screencast start")?.response().context("screencast response")?;
+    let response = proxy
+        .start(&session, None, Default::default())
+        .await
+        .context("screencast start")?
+        .response()
+        .context("screencast response")?;
     let stream = response.streams().first().ok_or_else(|| anyhow::anyhow!("screencast returned no stream"))?;
     let node = stream.pipe_wire_node_id();
     let fd = proxy.open_pipe_wire_remote(&session, Default::default()).await.context("pipewire remote")?;
@@ -701,7 +700,9 @@ pub fn gst_args(fd: i32, node: u32, output: &Path, container: Container, desktop
     }
     match container {
         Container::Webm => a.extend(["webmmux".into(), "name=mux".into(), "!".into()]),
-        Container::Mp4 | Container::Gif => a.extend(["mp4mux".into(), "name=mux".into(), "fragment-duration=1000".into(), "!".into()]),
+        Container::Mp4 | Container::Gif => {
+            a.extend(["mp4mux".into(), "name=mux".into(), "fragment-duration=1000".into(), "!".into()])
+        }
     }
     a.extend(["filesink".into(), format!("location={}", output.display())]);
     a
@@ -712,7 +713,16 @@ fn push_pulsesrc(a: &mut Vec<String>, device: Option<&str>, enc: &str) {
     if let Some(device) = device {
         a.push(format!("device={device}"));
     }
-    a.extend(["!".into(), "audioconvert".into(), "!".into(), "audioresample".into(), "!".into(), enc.into(), "!".into(), "mux.".into()]);
+    a.extend([
+        "!".into(),
+        "audioconvert".into(),
+        "!".into(),
+        "audioresample".into(),
+        "!".into(),
+        enc.into(),
+        "!".into(),
+        "mux.".into(),
+    ]);
 }
 
 fn pulse_monitor() -> Option<String> {
@@ -745,7 +755,10 @@ fn signal(pid: u32, sig: &str) -> Result<()> {
 fn alive(pid: u32) -> bool {
     if let Ok(stat) = fs::read_to_string(format!("/proc/{pid}/stat")) {
         // "pid (comm) S ...": the state follows the last ')'.
-        return stat.rsplit_once(')').and_then(|(_, rest)| rest.trim_start().chars().next()).is_some_and(|state| state != 'Z' && state != 'X');
+        return stat
+            .rsplit_once(')')
+            .and_then(|(_, rest)| rest.trim_start().chars().next())
+            .is_some_and(|state| state != 'Z' && state != 'X');
     }
     Command::new("kill").args(["-0", &pid.to_string()]).status().map(|s| s.success()).unwrap_or(false)
 }
