@@ -1,9 +1,11 @@
 # Capture
 
 Screenshots, annotation, text and QR code reading, a colour picker and screen recording
-for Omarchy and Hyprland, with a searchable history.
+for NyxOS and Omarchy, with a searchable history.
 
 ## Install
+
+On NyxOS, Capture comes with the system. On Omarchy:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/design-nexus/nyx-capture/main/install.sh | bash -s -- capture
