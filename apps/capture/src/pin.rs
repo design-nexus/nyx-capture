@@ -35,11 +35,7 @@ pub fn open_rgba(img: RgbaImage) {
 
     // A GtkApplicationWindow inherits the Capture app-id, so Hyprland never matches the
     // Capture.Pin float+pin rule. A plain Window plus the Wayland app-id does.
-    let window = gtk::Window::builder()
-        .title(TITLE)
-        .default_width(dw)
-        .default_height(dh + 40)
-        .build();
+    let window = gtk::Window::builder().title(TITLE).default_width(dw).default_height(dh + 40).build();
     window.add_css_class("capture-window");
     window.add_css_class("capture-pin");
     window.set_resizable(true);

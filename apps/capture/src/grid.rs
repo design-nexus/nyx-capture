@@ -176,15 +176,8 @@ pub fn build() -> gtk::Widget {
     root.add_overlay(&probe);
     root.set_measure_overlay(&probe, false);
     GRID.with(|g| {
-        *g.borrow_mut() = Some(Grid {
-            store,
-            view,
-            rows: Vec::new(),
-            cols: 0,
-            cell_height: 132,
-            selected: BTreeSet::new(),
-            anchor: None,
-        })
+        *g.borrow_mut() =
+            Some(Grid { store, view, rows: Vec::new(), cols: 0, cell_height: 132, selected: BTreeSet::new(), anchor: None })
     });
     root.upcast()
 }
@@ -212,7 +205,8 @@ fn relayout() {
         g.cols = cols;
         let cell_w = (inner - GAP * (cols as i32 - 1)) / cols as i32;
         g.cell_height = (cell_w * 3 / 4).max(96);
-        let objs: Vec<glib::BoxedAnyObject> = lines(&g.rows, cols, day_label).into_iter().map(glib::BoxedAnyObject::new).collect();
+        let objs: Vec<glib::BoxedAnyObject> =
+            lines(&g.rows, cols, day_label).into_iter().map(glib::BoxedAnyObject::new).collect();
         Some((g.store.clone(), objs))
     });
     if let Some(Some((store, objs))) = rebuilt {

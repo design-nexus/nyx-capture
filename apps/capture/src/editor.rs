@@ -11,10 +11,10 @@ use gtk::prelude::*;
 use image::RgbaImage;
 use nyx_capture_core::annot::{self, ArrowStyle, Axis, Colour, EditState, History, Mark, NormRect, SpotShape};
 use nyx_capture_core::capture::Shot;
+use nyx_capture_core::clipboard;
 use nyx_capture_core::export;
 use nyx_capture_core::ocr::{OcrMode, recognize};
 use nyx_capture_core::store;
-use nyx_capture_core::clipboard;
 use nyx_ui::chrome;
 use std::cell::RefCell;
 use std::path::PathBuf;
@@ -69,9 +69,15 @@ const TOOLS: &[(Tool, &str, &str, gdk::Key)] = &[
 
 enum Draft {
     Stroke(Vec<(f64, f64)>),
-    Shape { from: (f64, f64), to: (f64, f64) },
+    Shape {
+        from: (f64, f64),
+        to: (f64, f64),
+    },
     /// Moving the selected mark: where the drag began, and where it is now (view space).
-    Move { from: (f64, f64), to: (f64, f64) },
+    Move {
+        from: (f64, f64),
+        to: (f64, f64),
+    },
 }
 
 struct Session {
@@ -233,7 +239,12 @@ impl BackdropUi {
     /// The controls' backdrop: None when Off is chosen.
     fn value(&self) -> Option<annot::Backdrop> {
         let fill = self.fills.iter().find(|(_, b)| b.is_active())?.0;
-        Some(annot::Backdrop { fill, padding: self.padding.value(), radius: self.corners.value(), shadow: self.shadow.is_active() })
+        Some(annot::Backdrop {
+            fill,
+            padding: self.padding.value(),
+            radius: self.corners.value(),
+            shadow: self.shadow.is_active(),
+        })
     }
 
     /// Show `b` (the state's backdrop) on the controls.
@@ -299,7 +310,8 @@ pub fn open_saved(img: RgbaImage, state: annot::EditState, id: String, path: Pat
 
 impl Editor {
     fn show(app: &gtk::Application) -> Editor {
-        let window = gtk::ApplicationWindow::builder().application(app).title("Capture").default_width(960).default_height(720).build();
+        let window =
+            gtk::ApplicationWindow::builder().application(app).title("Capture").default_width(960).default_height(720).build();
         window.add_css_class("capture-window");
         window.add_css_class("capture-editor");
         window.set_titlebar(Some(&gtk::Box::new(gtk::Orientation::Horizontal, 0)));
@@ -416,7 +428,15 @@ impl Editor {
         // The app and the shot; the edit actions, then Save and Copy, at the end.
         let header = chrome::app_header(&window, "capture-region-symbolic", "Capture");
         header.end.set_spacing(4);
-        for b in [undo.upcast_ref::<gtk::Widget>(), redo.upcast_ref(), redact.upcast_ref(), pin.upcast_ref(), share.upcast_ref(), save.upcast_ref(), copy.upcast_ref()] {
+        for b in [
+            undo.upcast_ref::<gtk::Widget>(),
+            redo.upcast_ref(),
+            redact.upcast_ref(),
+            pin.upcast_ref(),
+            share.upcast_ref(),
+            save.upcast_ref(),
+            copy.upcast_ref(),
+        ] {
             header.end.append(b);
         }
 
@@ -543,7 +563,9 @@ impl Editor {
         let mut history = History::default();
         // Debug builds: `CAPTURE_TEST_EDIT_STATE=<json>` opens with those edits, for layout checks.
         #[cfg(debug_assertions)]
-        if let Some(st) = std::env::var("CAPTURE_TEST_EDIT_STATE").ok().and_then(|p| EditState::load(std::path::Path::new(&p)).ok()) {
+        if let Some(st) =
+            std::env::var("CAPTURE_TEST_EDIT_STATE").ok().and_then(|p| EditState::load(std::path::Path::new(&p)).ok())
+        {
             history = History::from_state(st);
         }
         self.0.session.replace(Some(Session::new(original, history, None, None)));
@@ -599,7 +621,10 @@ impl Editor {
         if !p.ocr_on_capture {
             return;
         }
-        let Some((original, id)) = self.0.session.borrow().as_ref().and_then(|s| Some((s.original.clone(), s.id.clone()?))) else { return };
+        let Some((original, id)) = self.0.session.borrow().as_ref().and_then(|s| Some((s.original.clone(), s.id.clone()?)))
+        else {
+            return;
+        };
         let mode = OcrMode::parse(&p.ocr_mode);
         crate::cmd::background(
             move || {
@@ -727,7 +752,12 @@ impl Editor {
     /// The wheel over the selected spotlight: magnify inside it (a loupe), or less.
     fn zoom_spotlight(&self, up: bool) -> bool {
         let Some(i) = self.0.session.borrow().as_ref().and_then(|s| s.selected) else { return false };
-        let is_spot = self.0.session.borrow().as_ref().is_some_and(|s| matches!(s.history.current().marks.get(i), Some(Mark::Spotlight { .. })));
+        let is_spot = self
+            .0
+            .session
+            .borrow()
+            .as_ref()
+            .is_some_and(|s| matches!(s.history.current().marks.get(i), Some(Mark::Spotlight { .. })));
         if !is_spot {
             return false;
         }
@@ -851,7 +881,9 @@ impl Editor {
     }
 
     fn copy_flat(&self) {
-        let Some(sess) = self.0.session.borrow().as_ref().map(|s| (s.original.clone(), s.history.current().clone())) else { return };
+        let Some(sess) = self.0.session.borrow().as_ref().map(|s| (s.original.clone(), s.history.current().clone())) else {
+            return;
+        };
         let me = self.clone();
         crate::cmd::background(
             move || {
@@ -870,7 +902,10 @@ impl Editor {
     }
 
     fn save_flat(&self) {
-        let Some((original, state)) = self.0.session.borrow().as_ref().map(|s| (s.original.clone(), s.history.current().clone())) else { return };
+        let Some((original, state)) = self.0.session.borrow().as_ref().map(|s| (s.original.clone(), s.history.current().clone()))
+        else {
+            return;
+        };
         let path = crate::naming::next_path("");
         let me = self.clone();
         crate::cmd::background(
@@ -888,7 +923,10 @@ impl Editor {
     }
 
     fn share_flat(&self) {
-        let Some((original, state)) = self.0.session.borrow().as_ref().map(|s| (s.original.clone(), s.history.current().clone())) else { return };
+        let Some((original, state)) = self.0.session.borrow().as_ref().map(|s| (s.original.clone(), s.history.current().clone()))
+        else {
+            return;
+        };
         let me = self.clone();
         crate::cmd::background(
             move || {
@@ -897,7 +935,13 @@ impl Editor {
             },
             move |result| match result {
                 Ok(bytes) => {
-                    let name = format!("Screenshot {}.png", glib::DateTime::now_local().and_then(|d| d.format("%Y-%m-%d %H.%M.%S")).map(|s| s.to_string()).unwrap_or_default());
+                    let name = format!(
+                        "Screenshot {}.png",
+                        glib::DateTime::now_local()
+                            .and_then(|d| d.format("%Y-%m-%d %H.%M.%S"))
+                            .map(|s| s.to_string())
+                            .unwrap_or_default()
+                    );
                     let me2 = me.clone();
                     crate::share::png(bytes, name, move |r| {
                         if let Err(e) = r {
@@ -1159,7 +1203,8 @@ impl Editor {
         keys.connect_key_pressed(move |_, key, _, mods| {
             let ctrl = mods.contains(gdk::ModifierType::CONTROL_MASK);
             let shift = mods.contains(gdk::ModifierType::SHIFT_MASK);
-            let typing = gtk::prelude::GtkWindowExt::focus(&me.0.window).is_some_and(|f| f.dynamic_cast_ref::<gtk::Editable>().is_some());
+            let typing =
+                gtk::prelude::GtkWindowExt::focus(&me.0.window).is_some_and(|f| f.dynamic_cast_ref::<gtk::Editable>().is_some());
             if typing {
                 return glib::Propagation::Proceed;
             }
@@ -1496,10 +1541,13 @@ fn show_shortcuts(parent: &gtk::ApplicationWindow) {
     dialog.set_transient_for(Some(parent));
     let list = gtk::Box::new(gtk::Orientation::Vertical, 0);
     list.add_css_class("group-list");
-    let mut rows: Vec<(String, String)> = TOOLS.iter().map(|(_, _, tip, key)| {
-        let name = tip.split(" (").next().unwrap_or(tip).to_string();
-        (key.to_upper().name().map(|n| n.to_string()).unwrap_or_default(), name)
-    }).collect();
+    let mut rows: Vec<(String, String)> = TOOLS
+        .iter()
+        .map(|(_, _, tip, key)| {
+            let name = tip.split(" (").next().unwrap_or(tip).to_string();
+            (key.to_upper().name().map(|n| n.to_string()).unwrap_or_default(), name)
+        })
+        .collect();
     for (k, what) in [
         ("A", "Arrow again: next arrow style"),
         ("S", "Spotlight again: next shape"),
@@ -1538,7 +1586,16 @@ fn theme_swatches() -> Vec<Colour> {
     let text = parse_colour(&p.text).unwrap_or(Colour::rgb(1.0, 1.0, 1.0));
     let bg = parse_colour(&p.bg).unwrap_or(Colour::rgb(0.1, 0.1, 0.12));
     let mix = |a: Colour, b: Colour, t: f64| Colour::rgb(a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t, a.b + (b.b - a.b) * t);
-    vec![text, bg, accent, danger, mix(accent, text, 0.4), mix(danger, accent, 0.45), mix(accent, bg, 0.3), mix(danger, text, 0.25)]
+    vec![
+        text,
+        bg,
+        accent,
+        danger,
+        mix(accent, text, 0.4),
+        mix(danger, accent, 0.45),
+        mix(accent, bg, 0.3),
+        mix(danger, text, 0.25),
+    ]
 }
 
 fn parse_colour(hex: &str) -> Option<Colour> {
@@ -1626,7 +1683,9 @@ fn draft_mark(draft: &Draft, tool: Tool, style: &Style) -> Option<Mark> {
         (Draft::Shape { from, to }, Tool::Rect) => {
             Some(Mark::Rect { rect: NormRect::from_corners(*from, *to), colour, size, fill: style.fill, radius: style.radius })
         }
-        (Draft::Shape { from, to }, Tool::Ellipse) => Some(Mark::Ellipse { rect: NormRect::from_corners(*from, *to), colour, size, fill: style.fill }),
+        (Draft::Shape { from, to }, Tool::Ellipse) => {
+            Some(Mark::Ellipse { rect: NormRect::from_corners(*from, *to), colour, size, fill: style.fill })
+        }
         _ => None,
     }
 }

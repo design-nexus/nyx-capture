@@ -5,6 +5,27 @@ use nyx_capture_core::capture::CaptureMode;
 use nyx_core::control::{Reply, text};
 use serde_json::{Value, json};
 
+/// Capture's description for the control interface (API 2): its actions, the `nyx`
+/// command's `capture` namespace, and D-Bus activation so a call starts it (captures
+/// use the overlay bar, not the window).
+pub fn description(app_id: &str) -> Value {
+    let mut tools = tools();
+    for t in tools.as_array_mut().into_iter().flatten() {
+        let risk = match t["name"].as_str().unwrap_or_default() {
+            "capture.search" | "capture.ocr_text" => "read_only",
+            "capture.send_screenshot" => "external",
+            _ => "writes",
+        };
+        t["x-nyx"] = json!({"risk": risk});
+    }
+    json!({
+        "tools": tools,
+        "nyx": {"api": 2, "app": app_id, "name": "Capture", "icon": "io.github.design_nexus.nyx.Capture", "namespaces": ["capture"],
+                "aliases": ["screenshot"], "bus_name": app_id, "activation": "dbus", "default": "capture.search",
+                "open": {"action": "capture.open"}}
+    })
+}
+
 pub fn tools() -> Value {
     json!([
         {"name": "capture.region", "description": "Drag a screen region and copy the screenshot.", "inputSchema": {"type": "object", "properties": {}}},

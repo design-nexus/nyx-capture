@@ -4,8 +4,8 @@ use crate::widgets;
 use gtk::cairo;
 use gtk::prelude::*;
 use image::RgbaImage;
-use nyx_capture_core::ocr::OcrResult;
 use nyx_capture_core::clipboard;
+use nyx_capture_core::ocr::OcrResult;
 
 /// The text over the picture it came from. Without a parent (Text mode's review, with
 /// the history window hidden) it stands alone.
@@ -59,11 +59,7 @@ pub fn show(parent: Option<&gtk::Window>, img: &RgbaImage, result: &OcrResult) {
     view.set_wrap_mode(gtk::WrapMode::WordChar);
     view.set_monospace(true);
     view.buffer().set_text(&result.text);
-    let scroll = gtk::ScrolledWindow::builder()
-        .min_content_height(140)
-        .vexpand(true)
-        .child(&view)
-        .build();
+    let scroll = gtk::ScrolledWindow::builder().min_content_height(140).vexpand(true).child(&view).build();
     card.append(&scroll);
 
     let buttons = widgets::hbox(8);

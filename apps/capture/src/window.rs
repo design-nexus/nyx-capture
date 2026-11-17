@@ -225,7 +225,11 @@ pub fn reload() {
             ui.borrow().scroller.set_visible(!empty);
             if empty {
                 let searching = !query.trim().is_empty();
-                let (title, desc) = if searching { ("Nothing found", "No capture, or text read from one, matches that.") } else { empty_copy(view) };
+                let (title, desc) = if searching {
+                    ("Nothing found", "No capture, or text read from one, matches that.")
+                } else {
+                    empty_copy(view)
+                };
                 show_empty(&ui.borrow(), title, desc, !searching && view != View::Starred);
             } else {
                 ui.borrow().empty.set_visible(false);
@@ -256,10 +260,12 @@ fn show_empty(ui: &Ui, title: &str, desc: &str, go: bool) {
 pub fn search(query: &str) -> anyhow::Result<Value> {
     let db = store::open(&paths::library_db())?;
     let items = db.list(View::Recent, query, 20)?;
-    Ok(json!(items
-        .into_iter()
-        .map(|c| json!({"id": c.id, "title": c.title, "path": c.path.display().to_string()}))
-        .collect::<Vec<_>>()))
+    Ok(json!(
+        items
+            .into_iter()
+            .map(|c| json!({"id": c.id, "title": c.title, "path": c.path.display().to_string()}))
+            .collect::<Vec<_>>()
+    ))
 }
 
 pub fn send_screenshot(id: &str) -> Result<Value, String> {
@@ -293,10 +299,12 @@ pub fn start_scroll() {
     }
 }
 
-
 pub fn show_tutorial() {
     let (dialog, card) = widgets::dialog("Capture tutorial", 460);
-    let note = widgets::label("1. Region (or Scroll) freezes the screen.\n2. Annotate, then Redact if the shot has secrets.\n3. Copy leaves the original file unchanged. Esc cancels.", "dim");
+    let note = widgets::label(
+        "1. Region (or Scroll) freezes the screen.\n2. Annotate, then Redact if the shot has secrets.\n3. Copy leaves the original file unchanged. Esc cancels.",
+        "dim",
+    );
     note.set_wrap(true);
     card.append(&note);
     let buttons = gtk::Box::new(gtk::Orientation::Horizontal, 8);
@@ -425,7 +433,8 @@ fn nav_button(icon: &str, title: &str, tooltip: &str) -> (gtk::Button, gtk::Box)
 }
 
 fn build(app: &gtk::Application) {
-    let window = gtk::ApplicationWindow::builder().application(app).title("Capture").default_width(1120).default_height(800).build();
+    let window =
+        gtk::ApplicationWindow::builder().application(app).title("Capture").default_width(1120).default_height(800).build();
     window.add_css_class("capture-window");
     window.set_titlebar(Some(&gtk::Box::new(gtk::Orientation::Horizontal, 0)));
     window.set_icon_name(Some("io.github.design_nexus.nyx.Capture"));
@@ -849,7 +858,13 @@ fn capture_with_bar(app: &gtk::Application, start: crate::overlay::Mode) {
     // The history window and the cards must be gone from the screen before the still,
     // including Hyprland's animations: the windows left behind resize to fill the gap
     // (Omarchy: about 380 ms) and layers fade (about 140 ms).
-    let wait = if shown { HIDE_WAIT_MS } else if cards { 200 } else { 0 };
+    let wait = if shown {
+        HIDE_WAIT_MS
+    } else if cards {
+        200
+    } else {
+        0
+    };
     glib::timeout_add_local_once(std::time::Duration::from_millis(wait), move || {
         let still = match crate::overlay::freeze() {
             Ok(still) => still,
@@ -874,7 +889,12 @@ fn capture_with_bar(app: &gtk::Application, start: crate::overlay::Mode) {
 
 /// The shot itself: cropped from the still, or taken fresh after the 3 s wait; or, in
 /// Scroll mode, stitched while the page scrolls; or, in Record mode, a recording.
-fn take_picked(still: nyx_capture_core::capture::Shot, picked: crate::overlay::Picked, restore: Rc<dyn Fn()>, hold: gio::ApplicationHoldGuard) {
+fn take_picked(
+    still: nyx_capture_core::capture::Shot,
+    picked: crate::overlay::Picked,
+    restore: Rc<dyn Fn()>,
+    hold: gio::ApplicationHoldGuard,
+) {
     let rect = picked.rect;
     match picked.mode {
         crate::overlay::Mode::Scroll => {
@@ -918,7 +938,10 @@ fn take_picked(still: nyx_capture_core::capture::Shot, picked: crate::overlay::P
     let started = crate::overlay::countdown(3, move |go| {
         if go {
             crate::cmd::background(
-                move || nyx_capture_core::capture::Grim.capture(&nyx_capture_core::capture::CaptureRequest { mode: CaptureMode::Region(rect) }),
+                move || {
+                    nyx_capture_core::capture::Grim
+                        .capture(&nyx_capture_core::capture::CaptureRequest { mode: CaptureMode::Region(rect) })
+                },
                 deliver,
             );
         }
@@ -929,7 +952,12 @@ fn take_picked(still: nyx_capture_core::capture::Shot, picked: crate::overlay::P
 }
 
 /// What Settings → Capture (or the bar's Edit and Text) says to do with a shot.
-fn deliver_shot(shot: nyx_capture_core::capture::Shot, picked: crate::overlay::Picked, restore: Rc<dyn Fn()>, hold: gio::ApplicationHoldGuard) {
+fn deliver_shot(
+    shot: nyx_capture_core::capture::Shot,
+    picked: crate::overlay::Picked,
+    restore: Rc<dyn Fn()>,
+    hold: gio::ApplicationHoldGuard,
+) {
     let title = if !picked.title.trim().is_empty() {
         picked.title.trim().chars().take(120).collect()
     } else if picked.app.is_empty() {
@@ -1219,11 +1247,21 @@ fn finish_shot(
             let card_shot = shot.clone();
             crate::cmd::background(
                 move || {
-                    let action = Action { mode: CaptureMode::FullDesktop, after: After::Quick, delay: 0, save_path, ocr_langs: langs, ocr_mode, backend: String::new() };
+                    let action = Action {
+                        mode: CaptureMode::FullDesktop,
+                        after: After::Quick,
+                        delay: 0,
+                        save_path,
+                        ocr_langs: langs,
+                        ocr_mode,
+                        backend: String::new(),
+                    };
                     action::finish(&shot, &action)
                 },
                 move |result| match result {
-                    Ok(action::Outcome::Quick(path)) => crate::card::show(card_shot, Some(path), crate::card::Done::CopiedSaved, None),
+                    Ok(action::Outcome::Quick(path)) => {
+                        crate::card::show(card_shot, Some(path), crate::card::Done::CopiedSaved, None)
+                    }
                     other => report_capture(other),
                 },
             );
@@ -1232,7 +1270,15 @@ fn finish_shot(
             remember(&shot);
             crate::cmd::background(
                 move || {
-                    let action = Action { mode: CaptureMode::FullDesktop, after: other, delay: 0, save_path, ocr_langs: langs, ocr_mode, backend: String::new() };
+                    let action = Action {
+                        mode: CaptureMode::FullDesktop,
+                        after: other,
+                        delay: 0,
+                        save_path,
+                        ocr_langs: langs,
+                        ocr_mode,
+                        backend: String::new(),
+                    };
                     action::finish(&shot, &action)
                 },
                 report_capture,
@@ -1241,7 +1287,14 @@ fn finish_shot(
     }
 }
 
-fn start_overlay(mode: CaptureMode, after: After, langs: String, ocr_mode: OcrMode, save_path: Option<PathBuf>, restore: Rc<dyn Fn()>) {
+fn start_overlay(
+    mode: CaptureMode,
+    after: After,
+    langs: String,
+    ocr_mode: OcrMode,
+    save_path: Option<PathBuf>,
+    restore: Rc<dyn Fn()>,
+) {
     let overlay_mode = crate::overlay::mode_for(&mode, after);
     if crate::overlay::supported() {
         match crate::overlay::freeze() {
@@ -1654,9 +1707,7 @@ pub fn open_capture(row: CaptureRow) {
 pub fn set_starred(id: &str, on: bool) {
     let id = id.to_string();
     crate::cmd::background(
-        move || {
-            store::open(&paths::library_db())?.set_starred(&id, on)
-        },
+        move || store::open(&paths::library_db())?.set_starred(&id, on),
         |result| match result {
             Ok(()) => reload(),
             Err(err) => toast(&err.to_string()),
@@ -2024,7 +2075,8 @@ fn install_keys(window: &gtk::ApplicationWindow, search: &gtk::SearchEntry) {
         if typing(win.upcast_ref()) {
             return glib::Propagation::Proceed;
         }
-        let plain = !mods.intersects(gdk::ModifierType::CONTROL_MASK | gdk::ModifierType::ALT_MASK | gdk::ModifierType::SUPER_MASK);
+        let plain =
+            !mods.intersects(gdk::ModifierType::CONTROL_MASK | gdk::ModifierType::ALT_MASK | gdk::ModifierType::SUPER_MASK);
         if !on_history() {
             if plain && let Some(mode) = crate::home::mode_for_key(key) {
                 start_mode(mode);

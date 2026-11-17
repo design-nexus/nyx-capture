@@ -63,12 +63,10 @@ fn capture_group(page: &Page) {
             crate::home::refresh_options();
         },
     ));
-    let (row, _) = widgets::switch_row(
-        "Shot card",
-        "Show the shot in the corner with Edit, Copy and Keep.",
-        prefs.shot_card,
-        |on| prefs::update(|p| p.shot_card = on),
-    );
+    let (row, _) =
+        widgets::switch_row("Shot card", "Show the shot in the corner with Edit, Copy and Keep.", prefs.shot_card, |on| {
+            prefs::update(|p| p.shot_card = on)
+        });
     group.add(&row);
     group.add(&widgets::segmented_row(
         "Card stays",
@@ -82,12 +80,9 @@ fn capture_group(page: &Page) {
         },
     ));
     let save_label = save_dir_label(&prefs.save_dir);
-    let (row, _) = widgets::button_row(
-        "Save folder",
-        "Where shots are saved. Read each time; no restart.",
-        &save_label,
-        |btn| choose_save_dir(btn.clone()),
-    );
+    let (row, _) = widgets::button_row("Save folder", "Where shots are saved. Read each time; no restart.", &save_label, |btn| {
+        choose_save_dir(btn.clone())
+    });
     group.add(&row);
     let name = gtk::Entry::new();
     name.set_text(&prefs.file_name);
@@ -165,10 +160,11 @@ fn choose_save_dir(btn: gtk::Button) {
 fn history_group(page: &Page) {
     let group = page.group("History");
     let prefs = prefs::get();
-    let (row, _) = widgets::switch_row("Keep a history", "Store captures on this computer so they can be searched.", prefs.history, |on| {
-        prefs::update(|p| p.history = on);
-        window::reload();
-    });
+    let (row, _) =
+        widgets::switch_row("Keep a history", "Store captures on this computer so they can be searched.", prefs.history, |on| {
+            prefs::update(|p| p.history = on);
+            window::reload();
+        });
     group.add(&row);
     group.add(&widgets::segmented_row(
         "Keep for",
@@ -184,7 +180,11 @@ fn history_group(page: &Page) {
     let clear = gtk::Button::with_label("Clear");
     clear.set_valign(gtk::Align::Center);
     clear.connect_clicked(|_| window::clear_history());
-    group.add(&widgets::row("Clear history", "Remove every capture and the text read from it, except starred ones.", Some(clear.upcast_ref())));
+    group.add(&widgets::row(
+        "Clear history",
+        "Remove every capture and the text read from it, except starred ones.",
+        Some(clear.upcast_ref()),
+    ));
 }
 
 fn privacy_group(page: &Page) {
@@ -222,9 +222,14 @@ fn ocr_group(page: &Page) {
         &prefs.ocr_mode,
         |v| prefs::update(|p| p.ocr_mode = v),
     ));
-    let (row, _) = widgets::switch_row("Read text after capture", "Run OCR in the background and index it for search.", prefs.ocr_on_capture, |on| {
-        prefs::update(|p| p.ocr_on_capture = on);
-    });
+    let (row, _) = widgets::switch_row(
+        "Read text after capture",
+        "Run OCR in the background and index it for search.",
+        prefs.ocr_on_capture,
+        |on| {
+            prefs::update(|p| p.ocr_on_capture = on);
+        },
+    );
     group.add(&row);
     // Tesseract's installed languages (more come as tesseract-data-* packages).
     let mut langs = nyx_capture_core::ocr::tesseract_languages();
@@ -371,4 +376,3 @@ fn record_group(page: &Page) {
         }
     }
 }
-

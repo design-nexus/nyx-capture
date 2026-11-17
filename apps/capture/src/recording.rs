@@ -59,16 +59,17 @@ pub fn start(picked: &Picked, screen: Rect, restore: Rc<dyn Fn()>, hold: gio::Ap
     });
     let p = crate::prefs::get();
     let whole = picked.rect == screen;
-    let target = if record::pick(&p.recorder) == Some(nyx_capture_core::RecordBackend::GstPortal) || (whole && p.record_use_portal) {
-        Target::Portal
-    } else if whole {
-        match overlay::output_for(screen).ok().and_then(|(m, _)| m.connector()) {
-            Some(name) => Target::Monitor(name.to_string()),
-            None => Target::Region(picked.rect),
-        }
-    } else {
-        Target::Region(picked.rect)
-    };
+    let target =
+        if record::pick(&p.recorder) == Some(nyx_capture_core::RecordBackend::GstPortal) || (whole && p.record_use_portal) {
+            Target::Portal
+        } else if whole {
+            match overlay::output_for(screen).ok().and_then(|(m, _)| m.connector()) {
+                Some(name) => Target::Monitor(name.to_string()),
+                None => Target::Region(picked.rect),
+            }
+        } else {
+            Target::Region(picked.rect)
+        };
     let delay = p.record_delay;
     if delay == 0 {
         launch(target);
@@ -134,13 +135,15 @@ pub fn show_bar(area: Option<Rect>) {
     dot.add_css_class("rec-dot");
     dot.set_valign(gtk::Align::Center);
 
-    let sound = state_button("capture-speaker-symbolic", desktop, if desktop { "Recording system audio" } else { "System audio off" });
+    let sound =
+        state_button("capture-speaker-symbolic", desktop, if desktop { "Recording system audio" } else { "System audio off" });
     sound.set_sensitive(false);
     let mic_btn = state_button("capture-mic-symbolic", mic, if mic { "Mute microphone" } else { "Microphone off" });
     mic_btn.set_sensitive(mic);
     mic_btn.connect_toggled(|b| set_mic(b.is_active()));
 
-    let pause = session.as_ref().filter(|_| record::can_pause()).map(|_| icon("capture-pause-symbolic", "Pause recording (Ctrl+Alt+P)"));
+    let pause =
+        session.as_ref().filter(|_| record::can_pause()).map(|_| icon("capture-pause-symbolic", "Pause recording (Ctrl+Alt+P)"));
     let discard = icon("capture-trash-symbolic", "Discard recording");
     let stop_btn = icon("capture-stop-symbolic", "Stop recording (Print)");
     stop_btn.add_css_class("rec-stop");
@@ -296,7 +299,11 @@ pub fn show_bar(area: Option<Rect>) {
         }
         if let Some(p) = &bar.pause {
             p.set_icon_name(if session.paused { "capture-play-symbolic" } else { "capture-pause-symbolic" });
-            p.set_tooltip_text(Some(if session.paused { "Resume recording (Ctrl+Alt+P)" } else { "Pause recording (Ctrl+Alt+P)" }));
+            p.set_tooltip_text(Some(if session.paused {
+                "Resume recording (Ctrl+Alt+P)"
+            } else {
+                "Pause recording (Ctrl+Alt+P)"
+            }));
         }
         glib::ControlFlow::Continue
     });

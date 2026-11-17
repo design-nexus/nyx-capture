@@ -10,8 +10,8 @@ mod naming;
 mod notice;
 mod ocr_view;
 mod overlay;
-mod pin;
 mod paths;
+mod pin;
 mod prefs;
 mod recording;
 mod scrolling;
@@ -69,9 +69,14 @@ const USAGE: &str = "Usage: nyx-capture [OPTIONS]\n\
 
 fn main() -> glib::ExitCode {
     nyx_core::app::init(nyx_core::app::App { slug: "nyx-capture", name: "Capture" });
+    nyx_core::control::describe_if_asked(&control::description(&app_id()));
     // Windows without an application, like the editor, take their Wayland app ID from this.
     glib::set_prgname(Some(app_id().as_str()));
-    let args: Vec<String> = std::env::args().collect();
+    let mut args: Vec<String> = std::env::args().collect();
+    // Started by D-Bus for an action: GLib leaves this flag to apps that handle their own
+    // command line.
+    let service = args.iter().any(|a| a == "--gapplication-service");
+    args.retain(|a| a != "--gapplication-service");
     if args.iter().any(|a| a == "--help" || a == "-h") {
         print!("{USAGE}");
         return glib::ExitCode::SUCCESS;
@@ -108,7 +113,6 @@ fn main() -> glib::ExitCode {
             }
         };
     }
-
 
     if has_flag(&args, "--record") && !primary_running() {
         match run_record(&args) {
@@ -166,11 +170,20 @@ fn main() -> glib::ExitCode {
         unsafe { std::env::set_var("GSK_RENDERER", "gl") };
     }
 
-    let app = gtk::Application::builder().application_id(app_id()).flags(gio::ApplicationFlags::HANDLES_COMMAND_LINE).build();
-    app.connect_startup(|app| {
+    let app = gtk::Application::builder()
+        .application_id(app_id())
+        .flags(if service {
+            gio::ApplicationFlags::HANDLES_COMMAND_LINE | gio::ApplicationFlags::IS_SERVICE
+        } else {
+            gio::ApplicationFlags::HANDLES_COMMAND_LINE
+        })
+        .build();
+    // The nyx command, Glimpse and Nyx Assistant capture and search through this.
+    let described = control::description(&app_id());
+    app.connect_startup(move |app| {
         theme::install();
         overlay::mark_theme_installed();
-        nyx_core::control::serve_async(app, control::tools(), control::handle);
+        nyx_core::control::serve_async(app, described.clone(), control::handle);
     });
     app.connect_command_line(|app, cl| {
         let argv: Vec<String> = cl.arguments().iter().map(|a| a.to_string_lossy().to_string()).collect();
@@ -246,7 +259,7 @@ fn main() -> glib::ExitCode {
         window::flush_deletes();
         prefs::flush();
     });
-    app.run()
+    app.run_with_args(&args)
 }
 
 /// Session bus name of a live Capture window. A second `--region --copy` must
@@ -396,7 +409,8 @@ fn run_record(args: &[String]) -> anyhow::Result<()> {
     let with_cam = has_flag(args, "--webcam") || prefs.record_webcam;
     if with_cam && nyx_capture_core::webcam::available() {
         let device = if prefs.record_webcam_device.is_empty() { None } else { Some(prefs.record_webcam_device.as_str()) };
-        if let Err(err) = nyx_capture_core::webcam::start(device, nyx_capture_core::webcam::Size::parse(&prefs.record_webcam_size), true)
+        if let Err(err) =
+            nyx_capture_core::webcam::start(device, nyx_capture_core::webcam::Size::parse(&prefs.record_webcam_size), true)
         {
             eprintln!("{err}");
         }
@@ -435,7 +449,8 @@ fn remember_cold(shot: &nyx_capture_core::capture::Shot, title: &str) {
     let saved = (|| {
         let png = shot.png()?;
         let db = nyx_capture_core::store::open(&paths::library_db())?;
-        let (id, path) = db.insert_png(&paths::captures_dir(), &png, shot.image.width() as i32, shot.image.height() as i32, "grim")?;
+        let (id, path) =
+            db.insert_png(&paths::captures_dir(), &png, shot.image.width() as i32, shot.image.height() as i32, "grim")?;
         let _ = db.set_title(&id, title);
         let _ = db.thumb(&id, &path, &paths::thumb_file(&id), false);
         anyhow::Ok(id)
@@ -577,7 +592,8 @@ mod tests {
 
     #[test]
     fn delay_parses_on_fullscreen() {
-        let a = cli_action(&["nyx-capture".into(), "--fullscreen".into(), "--delay".into(), "3".into(), "--copy".into()]).expect("action");
+        let a = cli_action(&["nyx-capture".into(), "--fullscreen".into(), "--delay".into(), "3".into(), "--copy".into()])
+            .expect("action");
         assert_eq!(a.delay, 3);
         assert!(matches!(a.after, After::Copy));
     }

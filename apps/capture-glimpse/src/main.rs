@@ -115,7 +115,12 @@ fn command_hit(query: &str) -> Option<Hit> {
         "clipboard" => ("Edit the clipboard image", "Open the copied image in the editor"),
         _ => ("Capture the screen", "The focused monitor"),
     };
-    Some(Hit { id: format!("cmd:{token}"), title: title.into(), subtitle: subtitle.into(), action: Action::Activate { token: token.into() } })
+    Some(Hit {
+        id: format!("cmd:{token}"),
+        title: title.into(),
+        subtitle: subtitle.into(),
+        action: Action::Activate { token: token.into() },
+    })
 }
 
 fn command_preview(id: &str) -> Option<String> {
@@ -188,7 +193,12 @@ mod tests {
         assert_eq!(scroll[0]["action"]["token"], "scroll");
         let action = answer(&request("activate", json!({"token": "scroll"}))).unwrap();
         assert_eq!(action["text"], "nyx-capture --scroll");
-        for (query, flag) in [("scan qr code", "--qr"), ("pick colour", "--colour"), ("capture text", "--text"), ("edit clipboard image", "--clipboard")] {
+        for (query, flag) in [
+            ("scan qr code", "--qr"),
+            ("pick colour", "--colour"),
+            ("capture text", "--text"),
+            ("edit clipboard image", "--clipboard"),
+        ] {
             let hit = answer(&request("search", json!({"query": query}))).unwrap();
             let token = hit[0]["action"]["token"].as_str().unwrap().to_string();
             let action = answer(&request("activate", json!({"token": token}))).unwrap();

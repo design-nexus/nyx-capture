@@ -313,7 +313,9 @@ pub fn set_recording(on: bool) {
 pub fn refresh_recent(hidden: &[String]) {
     let history = prefs::get().history;
     let (recent, total) = if history {
-        match store::open(&paths::library_db()).and_then(|db| Ok((db.list(View::Recent, "", (STRIP_WIDE + hidden.len()) as i64)?, db.count()?))) {
+        match store::open(&paths::library_db())
+            .and_then(|db| Ok((db.list(View::Recent, "", (STRIP_WIDE + hidden.len()) as i64)?, db.count()?)))
+        {
             Ok((mut rows, total)) => {
                 rows.retain(|r| !hidden.contains(&r.id));
                 rows.truncate(STRIP_WIDE);
@@ -425,7 +427,8 @@ fn shot(row: &CaptureRow) -> gtk::Button {
 
 /// The pictures at 16:10 of a cell's width.
 fn size_strip() {
-    let Some((strip, width, count)) = with(|h| (h.strip.clone(), h.width, if h.narrow { STRIP_NARROW } else { STRIP_WIDE })) else {
+    let Some((strip, width, count)) = with(|h| (h.strip.clone(), h.width, if h.narrow { STRIP_NARROW } else { STRIP_WIDE }))
+    else {
         return;
     };
     if width <= 0 {
@@ -476,7 +479,8 @@ mod tests {
     fn every_mode_has_its_own_key_and_name() {
         let keys: Vec<u32> = Mode::ALL.iter().map(|m| m.key()).collect();
         assert_eq!(keys, [1, 2, 3, 4, 5, 6, 7, 8]);
-        let parsed: Vec<Mode> = ["smart", "window", "screen", "scroll", "record", "text", "qr", "colour"].iter().map(|s| Mode::parse(s)).collect();
+        let parsed: Vec<Mode> =
+            ["smart", "window", "screen", "scroll", "record", "text", "qr", "colour"].iter().map(|s| Mode::parse(s)).collect();
         assert_eq!(parsed, Mode::ALL);
         for m in Mode::ALL {
             assert!(!m.label().is_empty() && !m.about().is_empty());

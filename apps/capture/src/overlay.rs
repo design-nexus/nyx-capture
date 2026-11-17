@@ -42,7 +42,8 @@ pub enum Mode {
 
 impl Mode {
     /// Every mode, in the bar's order; the number keys follow it.
-    pub const ALL: [Mode; 8] = [Mode::Smart, Mode::Window, Mode::Screen, Mode::Scroll, Mode::Record, Mode::Text, Mode::Qr, Mode::Colour];
+    pub const ALL: [Mode; 8] =
+        [Mode::Smart, Mode::Window, Mode::Screen, Mode::Scroll, Mode::Record, Mode::Text, Mode::Qr, Mode::Colour];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -565,7 +566,12 @@ fn finish_delay(proceed: bool) {
 
 /// Show the overlay and invoke `on_pick` with a layout rect, or `None` on cancel.
 pub fn pick(still: Shot, snap: bool, on_pick: impl FnOnce(Option<Rect>) + 'static) -> anyhow::Result<()> {
-    open(still, if snap { Mode::Window } else { Mode::Smart }, false, Box::new(move |p: Option<Picked>| on_pick(p.map(|p| p.rect))))
+    open(
+        still,
+        if snap { Mode::Window } else { Mode::Smart },
+        false,
+        Box::new(move |p: Option<Picked>| on_pick(p.map(|p| p.rect))),
+    )
 }
 
 /// The overlay without the bar, in `mode` (Text and QR light what they read).
@@ -589,14 +595,21 @@ fn open(still: Shot, mode: Mode, with_bar: bool, on_pick: Box<dyn FnOnce(Option<
         anyhow::bail!("no monitors");
     }
     let surface = still_surface(&still).ok_or_else(|| anyhow::anyhow!("the freeze could not be drawn"))?;
-    let mut targets: Vec<Target> =
-        outputs.iter().map(|(_, r)| Target { rect: *r, class: String::new(), title: String::new(), window: false, code: false }).collect();
+    let mut targets: Vec<Target> = outputs
+        .iter()
+        .map(|(_, r)| Target { rect: *r, class: String::new(), title: String::new(), window: false, code: false })
+        .collect();
     if let Ok(list) = select::windows() {
-        targets.extend(
-            list.into_iter().filter(|w| !w.hidden).map(|w| Target { rect: w.geometry, class: w.class, title: w.title, window: true, code: false }),
-        );
+        targets.extend(list.into_iter().filter(|w| !w.hidden).map(|w| Target {
+            rect: w.geometry,
+            class: w.class,
+            title: w.title,
+            window: true,
+            code: false,
+        }));
     }
-    let targets: Vec<Target> = targets.into_iter().filter_map(|t| Some(Target { rect: intersection(t.rect, still.area)?, ..t })).collect();
+    let targets: Vec<Target> =
+        targets.into_iter().filter_map(|t| Some(Target { rect: intersection(t.rect, still.area)?, ..t })).collect();
     // Start where the pointer is, with the window under it already lit, rather than a
     // dark screen and a magnifier in the corner until the mouse moves.
     let cursor = test_pointer().or_else(pointer).unwrap_or((i32::MIN, i32::MIN));
@@ -604,7 +617,11 @@ fn open(still: Shot, mode: Mode, with_bar: bool, on_pick: Box<dyn FnOnce(Option<
         still,
         surface,
         mode,
-        extras: if with_bar { Extras { edit: prefs::get().capture_edit, delay: prefs::get().capture_delay } } else { Extras::default() },
+        extras: if with_bar {
+            Extras { edit: prefs::get().capture_edit, delay: prefs::get().capture_delay }
+        } else {
+            Extras::default()
+        },
         dragging: false,
         origin: None,
         current: None,
@@ -800,7 +817,8 @@ fn build_bar(session: &Rc<RefCell<Session>>) -> (gtk::Box, Bar) {
         b
     };
     let edit = toggle("capture-edit-symbolic", "Edit after", "Edit after capture (E)", extras.edit, |x, on| x.edit = on);
-    let delay = toggle("capture-timer-symbolic", "3 s delay", "Wait 3 seconds before the shot (D)", extras.delay, |x, on| x.delay = on);
+    let delay =
+        toggle("capture-timer-symbolic", "3 s delay", "Wait 3 seconds before the shot (D)", extras.delay, |x, on| x.delay = on);
     main.append(&separator());
 
     let hint = gtk::Label::new(Some(mode.hint()));
@@ -827,7 +845,8 @@ fn build_bar(session: &Rc<RefCell<Session>>) -> (gtk::Box, Bar) {
     options.append(&record);
     bar.append(&options);
 
-    let parts = Bar { modes, shot_sep, edit, delay, options, text, keep_lines, review, qr, open_links, colour, format, record, hint };
+    let parts =
+        Bar { modes, shot_sep, edit, delay, options, text, keep_lines, review, qr, open_links, colour, format, record, hint };
     parts.show_for(mode);
     (bar, parts)
 }
@@ -1000,7 +1019,14 @@ fn pick_colour(keep: bool) {
         s.refresh_hint();
         return;
     }
-    finish(Some(Picked { rect: Rect::new(at.0, at.1, 1, 1), app: String::new(), title: String::new(), extras, mode: Mode::Colour, colour: Some(rgb) }));
+    finish(Some(Picked {
+        rect: Rect::new(at.0, at.1, 1, 1),
+        app: String::new(),
+        title: String::new(),
+        extras,
+        mode: Mode::Colour,
+        colour: Some(rgb),
+    }));
 }
 
 /// Record mode's choices: system sound, mic, pointer, webcam, countdown and format.
@@ -1017,9 +1043,13 @@ fn record_options() -> gtk::Box {
     };
     option("capture-speaker-symbolic", "System sound", "Record system audio", desktop, |on| set_audio(Some(on), None));
     option("capture-mic-symbolic", "Microphone", "Record microphone", mic, |on| set_audio(None, Some(on)));
-    option("capture-pointer-symbolic", "Pointer", "Show the pointer", p.record_cursor, |on| prefs::update(|p| p.record_cursor = on));
+    option("capture-pointer-symbolic", "Pointer", "Show the pointer", p.record_cursor, |on| {
+        prefs::update(|p| p.record_cursor = on)
+    });
     if nyx_capture_core::webcam::available() {
-        option("capture-cam-symbolic", "Webcam", "Show the webcam", p.record_webcam, |on| prefs::update(|p| p.record_webcam = on));
+        option("capture-cam-symbolic", "Webcam", "Show the webcam", p.record_webcam, |on| {
+            prefs::update(|p| p.record_webcam = on)
+        });
     }
     option("capture-timer-symbolic", "3 s countdown", "Count down 3 seconds before recording", p.record_delay > 0, |on| {
         prefs::update(|p| p.record_delay = if on { 3 } else { 0 })
@@ -1068,9 +1098,7 @@ fn pointer() -> Option<(i32, i32)> {
 }
 
 /// Cold CLI: freeze, pick, crop, then copy/save/OCR. Caller has already delayed.
-pub fn run_cli(
-    action: &nyx_capture_core::action::Action,
-) -> anyhow::Result<(nyx_capture_core::action::Outcome, Option<Shot>)> {
+pub fn run_cli(action: &nyx_capture_core::action::Action) -> anyhow::Result<(nyx_capture_core::action::Outcome, Option<Shot>)> {
     ensure_gtk()?;
     if !supported() {
         anyhow::bail!("layer-shell isn't available");
@@ -1291,7 +1319,12 @@ fn wire_keys(window: &gtk::Window, session: Rc<RefCell<Session>>) {
             gdk::Key::a | gdk::Key::A if ctrl && current != Mode::Colour => {
                 let screen = {
                     let s = session.borrow();
-                    s.targets.iter().filter(|t| !t.window).find(|t| t.rect.contains(s.cursor.0, s.cursor.1)).or(s.targets.first()).map(|t| t.rect)
+                    s.targets
+                        .iter()
+                        .filter(|t| !t.window)
+                        .find(|t| t.rect.contains(s.cursor.0, s.cursor.1))
+                        .or(s.targets.first())
+                        .map(|t| t.rect)
                 };
                 if let Some(rect) = screen {
                     pick_now(rect, (String::new(), String::new()));
@@ -1440,7 +1473,9 @@ pub fn dismiss() {
 }
 
 fn pick_now(rect: Rect, (app, title): (String, String)) {
-    let (extras, mode) = SESSION.with(|s| s.borrow().as_ref().map(|s| (s.borrow().extras, s.borrow().mode))).unwrap_or((Extras::default(), Mode::Smart));
+    let (extras, mode) = SESSION
+        .with(|s| s.borrow().as_ref().map(|s| (s.borrow().extras, s.borrow().mode)))
+        .unwrap_or((Extras::default(), Mode::Smart));
     // A drawn region (not a window or a screen) is kept for R next time.
     let drawn = SESSION.with(|s| {
         let s = s.borrow();
@@ -1566,7 +1601,8 @@ fn draw(sess: &Session, cr: &Context, ww: f64, wh: f64, layout: Rect) {
             (None, Some(_)) => "Screen".to_string(),
             _ => String::new(),
         };
-        let size = shown.map(|r| ((r.w as f64 * sess.still.scale).round() as i64, (r.h as f64 * sess.still.scale).round() as i64));
+        let size =
+            shown.map(|r| ((r.w as f64 * sess.still.scale).round() as i64, (r.h as f64 * sess.still.scale).round() as i64));
         paint_readouts(sess, cr, layout, ww, wh, (px, py), size, &app);
     }
 }
@@ -1599,7 +1635,16 @@ fn paint_still(cr: &Context, surface: &ImageSurface, still: &Shot, mon: Rect, ww
 /// Beside the pointer: a chip with the size (in saved pixels) and the app, then the
 /// magnifier and the pointer's position under it. Flips left or up near an edge.
 #[allow(clippy::too_many_arguments)]
-fn paint_readouts(sess: &Session, cr: &Context, layout: Rect, ww: f64, wh: f64, at: (f64, f64), size: Option<(i64, i64)>, app: &str) {
+fn paint_readouts(
+    sess: &Session,
+    cr: &Context,
+    layout: Rect,
+    ww: f64,
+    wh: f64,
+    at: (f64, f64),
+    size: Option<(i64, i64)>,
+    app: &str,
+) {
     const GAP: f64 = 22.0;
     cr.select_font_face("Inter", cairo::FontSlant::Normal, cairo::FontWeight::Bold);
     cr.set_font_size(12.0);
@@ -1608,7 +1653,8 @@ fn paint_readouts(sess: &Session, cr: &Context, layout: Rect, ww: f64, wh: f64, 
         (Some((w, h)), a) => format!("{w} × {h} · {}", a.label()),
         (None, _) => String::new(),
     };
-    let ext = |cr: &Context, t: &str| cr.text_extents(t).map(|e| (e.x_advance(), e.height(), e.y_bearing())).unwrap_or((0.0, 0.0, 0.0));
+    let ext =
+        |cr: &Context, t: &str| cr.text_extents(t).map(|e| (e.x_advance(), e.height(), e.y_bearing())).unwrap_or((0.0, 0.0, 0.0));
     let (sw, _, _) = ext(cr, &size_text);
     cr.select_font_face("Inter", cairo::FontSlant::Normal, cairo::FontWeight::Normal);
     let (aw, _, _) = ext(cr, app);

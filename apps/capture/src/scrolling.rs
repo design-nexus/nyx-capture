@@ -213,7 +213,11 @@ fn grab(area: Rect, stop: Arc<AtomicBool>, keep: Arc<AtomicBool>, tx: mpsc::Send
             && stitcher.push(&frame) > 0
         {
             let image = stitcher.image();
-            let preview = image::imageops::thumbnail(&image, STRIP_INNER as u32 * 2, ((image.height() as u64 * STRIP_INNER as u64 * 2) / image.width().max(1) as u64).max(1) as u32);
+            let preview = image::imageops::thumbnail(
+                &image,
+                STRIP_INNER as u32 * 2,
+                ((image.height() as u64 * STRIP_INNER as u64 * 2) / image.width().max(1) as u64).max(1) as u32,
+            );
             let _ = tx.send(Update::Grew { frames: stitcher.frames(), width: image.width(), height: image.height(), preview });
         }
         std::thread::sleep(EVERY);
@@ -245,7 +249,10 @@ fn poll() -> glib::ControlFlow {
         while let Ok(update) = sess.rx.try_recv() {
             match update {
                 Update::Grew { frames, width, height, preview } => {
-                    sess.count.set_markup(&format!("<b>{frames}</b> <span alpha=\"70%\">frames · {} px tall</span>", thousands(height)));
+                    sess.count.set_markup(&format!(
+                        "<b>{frames}</b> <span alpha=\"70%\">frames · {} px tall</span>",
+                        thousands(height)
+                    ));
                     sess.size.set_text(&format!("{} × {}", thousands(width), thousands(height)));
                     *sess.preview.borrow_mut() = surface_of(&preview);
                     if let Some(strip) = &sess.strip {
@@ -284,7 +291,12 @@ fn hand_over(image: Option<RgbaImage>) {
     }
     let shot = image.map(|img| {
         let h = (img.height() as f64 / sess.scale).round() as i32;
-        Shot::from_image(image::DynamicImage::ImageRgba8(img), Rect::new(sess.area.x, sess.area.y, sess.area.w, h), sess.scale, "scroll")
+        Shot::from_image(
+            image::DynamicImage::ImageRgba8(img),
+            Rect::new(sess.area.x, sess.area.y, sess.area.w, h),
+            sess.scale,
+            "scroll",
+        )
     });
     if let Some(done) = sess.on_done.take() {
         done(shot);

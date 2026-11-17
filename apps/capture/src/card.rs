@@ -129,7 +129,8 @@ pub fn show_video(path: PathBuf) {
             move || video_info(&path)
         },
         move |info| {
-            let (frame, size, length) = info.unwrap_or_else(|| (RgbaImage::from_pixel(16, 9, image::Rgba([30, 30, 46, 255])), (0, 0), None));
+            let (frame, size, length) =
+                info.unwrap_or_else(|| (RgbaImage::from_pixel(16, 9, image::Rgba([30, 30, 46, 255])), (0, 0), None));
             let format = match path.extension().and_then(|e| e.to_str()) {
                 Some("webm") => "WebM",
                 Some("gif") => "GIF",
@@ -185,7 +186,13 @@ fn build(
     let thumb = cover(&rgba, INNER, thumb_h, monitor.scale_factor().max(1));
     let (tw, th) = thumb.dimensions();
     let surface = cairo_surface(&thumb);
-    let texture = gdk::MemoryTexture::new(tw as i32, th as i32, gdk::MemoryFormat::R8g8b8a8, &glib::Bytes::from(&thumb.into_raw()), tw as usize * 4);
+    let texture = gdk::MemoryTexture::new(
+        tw as i32,
+        th as i32,
+        gdk::MemoryFormat::R8g8b8a8,
+        &glib::Bytes::from(&thumb.into_raw()),
+        tw as usize * 4,
+    );
 
     let window = gtk::Window::new();
     window.init_layer_shell();
@@ -264,7 +271,8 @@ fn build(
     status.set_xalign(0.0);
     status.set_hexpand(true);
     status.set_ellipsize(gtk::pango::EllipsizeMode::End);
-    let size = gtk::Label::new(Some(&format!("{} × {}", crate::scrolling::thousands(size.0), crate::scrolling::thousands(size.1))));
+    let size =
+        gtk::Label::new(Some(&format!("{} × {}", crate::scrolling::thousands(size.0), crate::scrolling::thousands(size.1))));
     size.add_css_class("shot-size");
     let status_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     status_row.add_css_class("shot-status");
@@ -276,7 +284,8 @@ fn build(
     status_row.append(&size);
 
     // Actions: Edit, Copy, Text for a shot; Play and Copy file for a recording.
-    let edit = if video { action_button("capture-play-symbolic", "Play") } else { action_button("capture-edit-symbolic", "Edit") };
+    let edit =
+        if video { action_button("capture-play-symbolic", "Play") } else { action_button("capture-edit-symbolic", "Edit") };
     edit.add_css_class("suggested-action");
     let copy = action_button("capture-copy-symbolic", if video { "Copy file" } else { "Copy image" });
     let text = action_button("capture-text-symbolic", "Copy text");
@@ -291,7 +300,15 @@ fn build(
     let spacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     spacer.set_hexpand(true);
     let acts = gtk::Box::new(gtk::Orientation::Horizontal, 2);
-    for w in [edit.upcast_ref::<gtk::Widget>(), copy.upcast_ref(), text.upcast_ref(), folder.upcast_ref(), pin.upcast_ref(), spacer.upcast_ref(), close_btn.upcast_ref()] {
+    for w in [
+        edit.upcast_ref::<gtk::Widget>(),
+        copy.upcast_ref(),
+        text.upcast_ref(),
+        folder.upcast_ref(),
+        pin.upcast_ref(),
+        spacer.upcast_ref(),
+        close_btn.upcast_ref(),
+    ] {
         acts.append(w);
     }
 
@@ -311,8 +328,14 @@ fn build(
     body.append(&life);
     window.set_child(Some(&body));
 
-    let folder_name = file.as_deref().and_then(Path::parent).and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    let taken = glib::DateTime::now_local().ok().and_then(|t| t.format("%-I:%M %p").ok()).map(|s| s.to_string()).unwrap_or_default();
+    let folder_name = file
+        .as_deref()
+        .and_then(Path::parent)
+        .and_then(|p| p.file_name())
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let taken =
+        glib::DateTime::now_local().ok().and_then(|t| t.format("%-I:%M %p").ok()).map(|s| s.to_string()).unwrap_or_default();
     let taken = if folder_name.is_empty() { taken } else { format!("{taken} · {folder_name}") };
     let card = Rc::new(Card {
         window: window.clone(),
@@ -512,7 +535,14 @@ fn sync_status(card: &Card) {
             row.add_css_class("quiet");
         }
     } else {
-        let folder = card.file.borrow().as_deref().and_then(Path::parent).and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let folder = card
+            .file
+            .borrow()
+            .as_deref()
+            .and_then(Path::parent)
+            .and_then(|p| p.file_name())
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
         card.status.set_text(&card.done.get().text(&folder));
         if let Some(row) = row {
             row.remove_css_class("quiet");
