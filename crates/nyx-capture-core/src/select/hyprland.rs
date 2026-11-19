@@ -42,6 +42,7 @@ struct HyprClient {
 
 #[derive(Deserialize)]
 struct HyprWorkspace {
+    #[serde(default)]
     id: i32,
 }
 
@@ -120,5 +121,13 @@ mod tests {
         let w = (m.width as f64 / m.scale).floor() as i32;
         let h = (m.height as f64 / m.scale).floor() as i32;
         assert_eq!((w, h), (1600, 1000));
+    }
+
+    #[test]
+    fn monitor_json_allows_empty_special_workspace_without_id() {
+        let raw = r#"[{"name":"eDP-1","width":2560,"height":1600,"x":0,"y":0,"scale":1.6,"transform":0,"focused":true,"activeWorkspace":{"address":"1","id":1,"type":"normal","name":"1"},"specialWorkspace":{"address":"","type":"","name":""}}]"#;
+        let list: Vec<HyprMonitor> = serde_json::from_str(raw).unwrap();
+        assert_eq!(list[0].active_workspace.as_ref().map(|w| w.id), Some(1));
+        assert_eq!(list[0].special_workspace.as_ref().map(|w| w.id), Some(0));
     }
 }
